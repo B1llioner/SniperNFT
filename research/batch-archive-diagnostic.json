@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-15",
+  "scope": "Read-only public RPC diagnostic. No transactions broadcast or local fork state modified.",
+  "chainId": 4663,
+  "blockNumber": 63609112,
+  "blockTag": "0x3ca9918",
+  "address": "0xd4a35e11318e3679168d409184b788bcf9f283ac",
+  "storageSlot": "0x4eddafaac25fe9b14f5f9b2ac43bd0bbc2e53fd2c924b1477c452b826c4c6c7c",
+  "previousProbes": [
+    {
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "pinnedBlockCodeError": {
+        "code": -32000,
+        "message": "metadata is not found, 63609115"
+      },
+      "pinnedBlockStorageError": {
+        "code": -32000,
+        "message": "metadata is not found, 63609115"
+      },
+      "latestCodeBytes": 9776,
+      "latestStorage": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "url": "https://robinhood-rpc.publicnode.com",
+      "pinnedBlockCodeError": {
+        "code": -32602,
+        "message": "Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode"
+      },
+      "pinnedBlockStorageError": {
+        "code": -32602,
+        "message": "Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode"
+      },
+      "latestCodeBytes": 9776,
+      "latestStorage": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "endpointDiscoverySources": [
+    "https://blockreq.com/chains/robinhood",
+    "https://www.comparenodes.com/protocols/robinhood/"
+  ],
+  "probes": [
+    {
+      "url": "https://robinhood-mainnet-rpc.blockreq.com/v1/rpc/public",
+      "results": [
+        {
+          "jsonrpc": "2.0",
+          "id": "chainId",
+          "result": "0x1237"
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": "codeAtFork",
+          "result": {
+            "codeBytes": 9776,
+            "codeSha256": "9915e3a129f0b7a231f72168b4528f845f8c751c76e628016232495cc7e6b6e7",
+            "prefix": "0x608060405234801561000f575f5ffd5b50600436"
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": "storageAtFork",
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": "forkBlock",
+          "result": {
+            "hash": "0xbfef391c6ab8fbcb753afd0c647fd7e0400c1ab54fff908fa74917dc147454d7",
+            "number": "0x3ca9918",
+            "timestamp": "0x6aa9264f"
+          }
+        }
+      ]
+    },
+    {
+      "url": "https://robinhood.drpc.org/",
+      "error": "HTTP Error 500: Internal Server Error"
+    },
+    {
+      "url": "https://robinhood-chain.gateway.tenderly.co/",
+      "results": [
+        {
+          "id": "codeAtFork",
+          "jsonrpc": "2.0",
+          "result": {
+            "codeBytes": 9776,
+            "codeSha256": "9915e3a129f0b7a231f72168b4528f845f8c751c76e628016232495cc7e6b6e7",
+            "prefix": "0x608060405234801561000f575f5ffd5b50600436"
+          }
+        },
+        {
+          "id": "storageAtFork",
+          "jsonrpc": "2.0",
+          "result": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "id": "chainId",
+          "jsonrpc": "2.0",
+          "result": "0x1237"
+        },
+        {
+          "id": "forkBlock",
+          "jsonrpc": "2.0",
+          "result": {
+            "number": "0x3ca9918",
+            "hash": "0xbfef391c6ab8fbcb753afd0c647fd7e0400c1ab54fff908fa74917dc147454d7",
+            "timestamp": "0x6aa9264f"
+          }
+        }
+      ]
+    }
+  ]
+}

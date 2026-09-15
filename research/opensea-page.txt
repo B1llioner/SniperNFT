@@ -1,0 +1,39 @@
+URL: https://opensea.io/collection/rare-friends-genesis/overview?activityTypes=sale
+Retrieved 2026-09-15 via Playwright, unauthenticated fresh browser.
+
+- main:
+  - button
+  - button
+  - button
+  - button
+  - text: Mint Rare Friends Genesis Items minted 906 / 1,024
+  - progressbar "Mint progress"
+  - text: Whitelist FCFS Free Minting Now
+  - button "Decrease quantity" [disabled]
+  - spinbutton: "1"
+  - button "Increase quantity"
+  - button "Mint"
+  - text: Mint schedule
+  - list:
+    - listitem:
+      - img "Check Circle"
+      - text: Ended Poopie's Mint Allowlist
+      - img "Info"
+      - text: "Started: Free | Limit 64 per wallet"
+    - listitem:
+      - img "Check Circle"
+      - text: Ended $RAREFRIENDS Fair Launch Supply Allowlist
+      - img "Info"
+      - text: "Started: Free | Limit 128 per wallet"
+    - listitem:
+      - img "Check Circle"
+      - text: Ended Partners Airdrop Supply Allowlist
+      - img "Info"
+      - text: "Started: Free | Limit 192 per wallet"
+    - listitem:
+      - img "Energy Savings Leaf"
+      - text: Live now Whitelist FCFS Allowlist
+      - img "Info"
+      - text: "Starts: Free | Limit 1 per wallet"
+    - listitem: "Public stage Public Starts: Ends: Free | Limit 1 per wallet"
+

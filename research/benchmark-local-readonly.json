@@ -1,0 +1,199 @@
+{
+  "kind": "read-only-rpc-latency-benchmark",
+  "recordedAt": "2026-09-15T12:12:04.623Z",
+  "success": true,
+  "quantity": 10,
+  "samples": 3,
+  "intervalMs": 250,
+  "fullSamples": 1,
+  "percentileMethod": "nearest rank, successful samples only; milliseconds; pacing excluded",
+  "offline": {
+    "note": "First local encode/sign and subsequent operations in this process; signing uses a public synthetic key. Serialized transactions are discarded and never submitted.",
+    "coldEncode": {
+      "requested": 1,
+      "attempted": 1,
+      "successes": 1,
+      "errors": 0,
+      "skipped": 0,
+      "minMs": 1.075,
+      "p50Ms": 1.075,
+      "p95Ms": 1.075,
+      "maxMs": 1.075,
+      "errorCounts": {}
+    },
+    "warmEncode": {
+      "requested": 3,
+      "attempted": 3,
+      "successes": 3,
+      "errors": 0,
+      "skipped": 0,
+      "minMs": 0.17,
+      "p50Ms": 0.198,
+      "p95Ms": 0.229,
+      "maxMs": 0.229,
+      "errorCounts": {}
+    },
+    "coldSign": {
+      "requested": 1,
+      "attempted": 1,
+      "successes": 1,
+      "errors": 0,
+      "skipped": 0,
+      "minMs": 30.072,
+      "p50Ms": 30.072,
+      "p95Ms": 30.072,
+      "maxMs": 30.072,
+      "errorCounts": {}
+    },
+    "warmSign": {
+      "requested": 3,
+      "attempted": 3,
+      "successes": 3,
+      "errors": 0,
+      "skipped": 0,
+      "minMs": 0.663,
+      "p50Ms": 0.73,
+      "p95Ms": 1.588,
+      "maxMs": 1.588,
+      "errorCounts": {}
+    }
+  },
+  "endpoints": [
+    {
+      "index": 0,
+      "endpoint": "https://robinhood-rpc.publicnode.com",
+      "chainVerified": true,
+      "warm": {
+        "requested": 3,
+        "attempted": 3,
+        "successes": 3,
+        "errors": 0,
+        "skipped": 0,
+        "minMs": 92.69,
+        "p50Ms": 99.912,
+        "p95Ms": 100.223,
+        "maxMs": 100.223,
+        "errorCounts": {}
+      },
+      "coldConnectAndChainRead": {
+        "requested": 1,
+        "attempted": 1,
+        "successes": 1,
+        "errors": 0,
+        "skipped": 0,
+        "minMs": 271.538,
+        "p50Ms": 271.538,
+        "p95Ms": 271.538,
+        "maxMs": 271.538,
+        "errorCounts": {}
+      },
+      "lastObservedHead": "63648537",
+      "full": {
+        "ethCall": {
+          "requested": 1,
+          "attempted": 1,
+          "successes": 1,
+          "errors": 0,
+          "skipped": 0,
+          "minMs": 157.941,
+          "p50Ms": 157.941,
+          "p95Ms": 157.941,
+          "maxMs": 157.941,
+          "errorCounts": {}
+        },
+        "ethEstimateGas": {
+          "requested": 1,
+          "attempted": 1,
+          "successes": 1,
+          "errors": 0,
+          "skipped": 0,
+          "minMs": 127.412,
+          "p50Ms": 127.412,
+          "p95Ms": 127.412,
+          "maxMs": 127.412,
+          "errorCounts": {}
+        },
+        "context": {
+          "route": "factory",
+          "quantity": 10,
+          "blockTimeOverride": "1789567221",
+          "sourceSha256": "a25f3cda74163f4f5d6411c1faf5050494eb6bcd39955429e5c1691e1fa8d1a8",
+          "gasCap": 12000000
+        },
+        "lastGasEstimate": "2537082"
+      }
+    },
+    {
+      "index": 1,
+      "endpoint": "https://rpc.mainnet.chain.robinhood.com",
+      "chainVerified": true,
+      "warm": {
+        "requested": 3,
+        "attempted": 3,
+        "successes": 3,
+        "errors": 0,
+        "skipped": 0,
+        "minMs": 2879.796,
+        "p50Ms": 2988.31,
+        "p95Ms": 3065.949,
+        "maxMs": 3065.949,
+        "errorCounts": {}
+      },
+      "coldConnectAndChainRead": {
+        "requested": 1,
+        "attempted": 1,
+        "successes": 1,
+        "errors": 0,
+        "skipped": 0,
+        "minMs": 3025.987,
+        "p50Ms": 3025.987,
+        "p95Ms": 3025.987,
+        "maxMs": 3025.987,
+        "errorCounts": {}
+      },
+      "lastObservedHead": "63648623",
+      "full": {
+        "ethCall": {
+          "requested": 1,
+          "attempted": 1,
+          "successes": 1,
+          "errors": 0,
+          "skipped": 0,
+          "minMs": 2554.879,
+          "p50Ms": 2554.879,
+          "p95Ms": 2554.879,
+          "maxMs": 2554.879,
+          "errorCounts": {}
+        },
+        "ethEstimateGas": {
+          "requested": 1,
+          "attempted": 1,
+          "successes": 1,
+          "errors": 0,
+          "skipped": 0,
+          "minMs": 2874.772,
+          "p50Ms": 2874.772,
+          "p95Ms": 2874.772,
+          "maxMs": 2874.772,
+          "errorCounts": {}
+        },
+        "context": {
+          "route": "factory",
+          "quantity": 10,
+          "blockTimeOverride": "1789567221",
+          "sourceSha256": "a25f3cda74163f4f5d6411c1faf5050494eb6bcd39955429e5c1691e1fa8d1a8",
+          "gasCap": 12000000
+        },
+        "lastGasEstimate": "2537082"
+      }
+    }
+  ],
+  "limits": [
+    "Read/simulation/estimate latency is not transaction submission, mempool propagation, inclusion or finality latency.",
+    "Cold RPC measurement is the first eth_chainId request; DNS/TCP/TLS may be cached by the host.",
+    "Warm reads use eth_blockNumber; hosts and public RPC caches can change results. No minimum block production lag is inferred.",
+    "Full mode uses latest state plus temporary publicStart+1 time and synthetic addresses; factory code is virtual for quantity>1. Existing dependencies are unchanged.",
+    "Full requests use gasPrice 0 and a 12-million gas cap. Unsupported overrides, reverts and failed estimates are errors, not successful latency samples.",
+    "No actual wallet key is read; no deployment or broadcast is performed."
+  ]
+}

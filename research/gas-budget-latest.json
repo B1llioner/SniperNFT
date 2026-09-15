@@ -1,0 +1,208 @@
+{
+  "kind": "read-only-gas-budget-snapshot",
+  "recordedAt": "2026-09-15T12:57:14.034211Z",
+  "rpcRequestsStartedBetweenUtc": [
+    "2026-09-15T12:52:42.521760Z",
+    "2026-09-15T12:52:42.524592Z"
+  ],
+  "chainId": 4663,
+  "network": "Robinhood Chain Mainnet",
+  "mainnetBroadcast": false,
+  "privateKeysRead": false,
+  "method": {
+    "transport": "Python urllib HTTPS POST",
+    "userAgent": "Mozilla/5.0",
+    "rpcMethods": [
+      "eth_chainId",
+      "eth_getBlockByNumber(latest,false)",
+      "eth_gasPrice",
+      "eth_maxPriorityFeePerGas"
+    ],
+    "note": "Independent requests to each endpoint; not an atomic snapshot. Block heads and gasPrice may differ between requests. No gas estimate was requested in this snapshot."
+  },
+  "endpoints": [
+    {
+      "name": "Robinhood official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "chainIdHex": "0x1237",
+      "chainId": 4663,
+      "latestBlock": {
+        "numberHex": "0x3cb911d",
+        "number": 63672605,
+        "hash": "0xd42735ce089168aa5e4fa5c8d233cd7559cf66a0121687ed7a517150a31d5148",
+        "timestampHex": "0x6aa93f9a",
+        "timestamp": 1789476762,
+        "timestampUtc": "2026-09-15T12:52:42Z",
+        "baseFeePerGasHex": "0x3efdfa0",
+        "baseFeePerGasWei": "66052000",
+        "baseFeePerGasGwei": "0.066052",
+        "gasLimitHex": "0x4000000000000",
+        "gasUsedHex": "0x242801"
+      },
+      "gasPriceHex": "0x400df30",
+      "maxPriorityFeePerGasHex": "0x0",
+      "gasPriceWei": "67166000",
+      "gasPriceGwei": "0.067166",
+      "maxPriorityFeePerGasWei": "0"
+    },
+    {
+      "name": "PublicNode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "chainIdHex": "0x1237",
+      "chainId": 4663,
+      "latestBlock": {
+        "numberHex": "0x3cb9115",
+        "number": 63672597,
+        "hash": "0xe298bd0902d47ae40521571af48bce726d682392a36cb3a0dd8590fcbd460e4b",
+        "timestampHex": "0x6aa93f99",
+        "timestamp": 1789476761,
+        "timestampUtc": "2026-09-15T12:52:41Z",
+        "baseFeePerGasHex": "0x3ed8610",
+        "baseFeePerGasWei": "65898000",
+        "baseFeePerGasGwei": "0.065898",
+        "gasLimitHex": "0x4000000000000",
+        "gasUsedHex": "0x352e58"
+      },
+      "gasPriceHex": "0x3ed37f0",
+      "maxPriorityFeePerGasHex": "0x0",
+      "gasPriceWei": "65878000",
+      "gasPriceGwei": "0.065878",
+      "maxPriorityFeePerGasWei": "0"
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://docs.robinhood.com/chain/connecting/",
+      "supports": "Robinhood mainnet chain ID 4663 and official RPC endpoint."
+    },
+    {
+      "url": "https://docs.robinhood.com/chain/gas-and-fees/",
+      "supports": "ETH pays gas. Fees include L2 execution and L1 data posting; standard eth_estimateGas accounts for both components."
+    },
+    {
+      "url": "https://docs.robinhood.com/chain/differences-from-ethereum/",
+      "supports": "The sequencer orders transactions by arrival. Raising the fee does not buy a higher place in a priority auction."
+    },
+    {
+      "url": "https://docs.arbitrum.io/how-arbitrum-works/deep-dives/gas-and-fees",
+      "lastUpdatedShown": "2026-09-09",
+      "supports": "Linked Nitro fee documentation describes dynamic base fees that rise with execution backlogs, a gas-price floor, and variable parent-chain data cost in the gas estimate."
+    }
+  ],
+  "historicalGasInputs": {
+    "mint10": {
+      "gasEstimate": "2537082",
+      "gasLimitWith20PercentCeiling": "3044499",
+      "source": "research/benchmark-local-readonly.json",
+      "recordedAt": "2026-09-15T12:12:04.623Z",
+      "method": "Read-only simulations on official and PublicNode RPCs with synthetic addresses, virtual factory runtime, temporary future block timestamp and gasPrice 0. Both reported this estimate.",
+      "limitations": "Historical simulation with state/time overrides, not a fresh estimate for the actual wallet and deployed factory. Future L1 posting fees, stage state, recipients and mint count can change the estimate."
+    },
+    "deployFactory": {
+      "gasLimit": "803625",
+      "source": "Historical deployment gas limit supplied in the task/prior report.",
+      "limitations": "Used as a scenario input only. Original RPC estimation record was not located in the research files and no fresh deployment estimate was performed."
+    },
+    "separateLocalForkObservation": {
+      "source": "research/batch-simulation.json",
+      "forkBlock": 63609112,
+      "deploymentGasUsedLocal": "663256",
+      "batchGasUsedLocal": "2259304",
+      "note": "Actual gas used on a local Anvil fork, not a Robinhood mainnet estimate. Local gas omits chain-specific L1 posting costs; these values are not used in the budget table."
+    }
+  },
+  "budgetAssumptions": {
+    "transactionValueWei": "0",
+    "maxGasCostEthPerTransaction": "0.003",
+    "gasLimits": {
+      "mint10": "3044499",
+      "deployFactory": "803625"
+    },
+    "tableMeaning": "Each row specifies maxFeePerGas, not baseFeePerGas. Maximum authorized gas cost is gasLimit multiplied by maxFeePerGas. Actual charge uses gas used and effective gas price.",
+    "dynamicFeeFormula": "maxFeePerGas = baseFeePerGas * configured multiplier + RPC priority fee; multiplier 4 is an example, not a claim about current local configuration.",
+    "capMeaning": "The 0.003 ETH setting is a rejection cap per transaction. It neither fixes the network price nor automatically chooses a fee equal to the cap."
+  },
+  "maxFeeScenarios": [
+    {
+      "maxFeePerGasGwei": "0.1",
+      "maxFeePerGasWei": "100000000",
+      "mint10MaximumGasCostEth": "0.0003044499",
+      "deployFactoryMaximumGasCostEth": "0.0000803625",
+      "deployAndMint10MaximumGasCostEth": "0.0003848124",
+      "mint10Within003EthPerTransactionCap": true,
+      "deployWithin003EthPerTransactionCap": true
+    },
+    {
+      "maxFeePerGasGwei": "0.3",
+      "maxFeePerGasWei": "300000000",
+      "mint10MaximumGasCostEth": "0.0009133497",
+      "deployFactoryMaximumGasCostEth": "0.0002410875",
+      "deployAndMint10MaximumGasCostEth": "0.0011544372",
+      "mint10Within003EthPerTransactionCap": true,
+      "deployWithin003EthPerTransactionCap": true
+    },
+    {
+      "maxFeePerGasGwei": "1",
+      "maxFeePerGasWei": "1000000000",
+      "mint10MaximumGasCostEth": "0.003044499",
+      "deployFactoryMaximumGasCostEth": "0.000803625",
+      "deployAndMint10MaximumGasCostEth": "0.003848124",
+      "mint10Within003EthPerTransactionCap": false,
+      "deployWithin003EthPerTransactionCap": true
+    },
+    {
+      "maxFeePerGasGwei": "3",
+      "maxFeePerGasWei": "3000000000",
+      "mint10MaximumGasCostEth": "0.009133497",
+      "deployFactoryMaximumGasCostEth": "0.002410875",
+      "deployAndMint10MaximumGasCostEth": "0.011544372",
+      "mint10Within003EthPerTransactionCap": false,
+      "deployWithin003EthPerTransactionCap": true
+    }
+  ],
+  "capThresholds": {
+    "mint10": {
+      "maxFeePerGasWeiFloor": "985383802",
+      "maxFeePerGasGweiFloor": "0.985383802",
+      "baseFeePerGasWeiFloorWithMultiplier4AndZeroPriority": "246345950",
+      "baseFeePerGasGweiFloorWithMultiplier4AndZeroPriority": "0.24634595"
+    },
+    "deployFactory": {
+      "maxFeePerGasWeiFloor": "3733084461",
+      "maxFeePerGasGweiFloor": "3.733084461",
+      "baseFeePerGasWeiFloorWithMultiplier4AndZeroPriority": "933271115",
+      "baseFeePerGasGweiFloorWithMultiplier4AndZeroPriority": "0.933271115"
+    }
+  },
+  "officialSnapshotMultiplier4Example": {
+    "baseFeePerGasGwei": "0.066052",
+    "priorityFeePerGasGwei": "0",
+    "maxFeePerGasGwei": "0.264208",
+    "mint10MaximumGasCostEth": "0.000804380991792",
+    "deployFactoryMaximumGasCostEth": "0.000212324154",
+    "deployAndMint10MaximumGasCostEth": "0.001016705145792"
+  },
+  "fundingRelativeToConfiguredCaps": {
+    "oneMintWithExistingFactoryEth": "0.003",
+    "oneFactoryDeploymentPlusOneMintEth": "0.006",
+    "optionalPracticalReserveEth": {
+      "existingFactory": [
+        "0.004",
+        "0.005"
+      ],
+      "deploymentAndMint": [
+        "0.007",
+        "0.01"
+      ]
+    },
+    "reserveClassification": "Conservative operational allowance, not a network fee forecast or inclusion guarantee.",
+    "assumptions": "One successful mint transaction; optionally one deployment; zero mint value; unchanged 0.003 ETH cap for each; no competing wallet spending. The actual balance needed before signing equals that transaction gasLimit times maxFeePerGas plus value."
+  },
+  "limitations": [
+    "No guaranteed fixed upper base-fee bound was established from the cited Robinhood and linked Nitro documentation. A finite maximum-load ETH guarantee cannot be inferred from this snapshot.",
+    "Fresh gas estimation is required when submitting. Both execution demand and Ethereum data-posting cost may change the quote.",
+    "A larger fee cap provides fee room but does not improve first-come-first-served ordering.",
+    "Submitting the same signed raw transaction to multiple RPCs does not multiply the on-chain fee. Separate transactions and mined reverts can each spend gas.",
+    "If baseFeePerGas were 1 gwei with multiplier 4 and zero priority, maxFeePerGas would be 4 gwei; the row for maxFeePerGas 1 gwei must not be read as that scenario."
+  ]
+}

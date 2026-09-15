@@ -1,0 +1,157 @@
+{
+  "kind": "public-rpc-read-only-eth-call-state-and-block-overrides",
+  "liveBroadcast": false,
+  "methodsAllowed": [
+    "eth_call",
+    "eth_getCode",
+    "eth_chainId",
+    "eth_getBlockByNumber"
+  ],
+  "recordedAt": "2026-09-15T11:29:12.391Z",
+  "factory": "0x8fd5AddF578Ef2546b9FCb92B13285F0765A6cAc",
+  "syntheticOwnerAndRecipient": "0x70F53d375deFDFCA28d2F0eD72a08CD8023d5097",
+  "artifactSourceSha256": "a25f3cda74163f4f5d6411c1faf5050494eb6bcd39955429e5c1691e1fa8d1a8",
+  "runtimeKeccak256": "0xcb2e966689ac71a80ca6fa13c6be930c250fc54b66cb16a6438e6d9409a772d2",
+  "originalRuntimeKeccak256": "0x98d3bb1a46df56a8324e193f0219e6ffdefdd29c0e3b492a928add60dadcf96a",
+  "method": "mintBatch(uint256,uint256)",
+  "arguments": [
+    "10",
+    "10"
+  ],
+  "documentation": [
+    "https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-eth#eth_call",
+    "https://geth.ethereum.org/docs/interacting-with-geth/rpc/objects#block-overrides"
+  ],
+  "overrideScope": "Only the nonexistent synthetic factory receives code and state:{}; original NFT, SeaDrop, registry and transfer-hook code/storage are unchanged. Block time is publicDrop.startTime + 1 for this eth_call only.",
+  "endpoints": [
+    {
+      "endpoint": "https://rpc.mainnet.chain.robinhood.com",
+      "chainIdResponse": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x1237"
+      },
+      "factoryCodeBefore": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": "0x"
+      },
+      "syntheticSenderCode": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": "0x"
+      },
+      "publicDropResponse": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006aa96b94000000000000000000000000000000000000000000000000000000006aa979a4000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000003e80000000000000000000000000000000000000000000000000000000000000001"
+      },
+      "mintStatsResponse": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000038c0000000000000000000000000000000000000000000000000000000000000400"
+      },
+      "latestBlock": {
+        "number": "0x3cad178",
+        "hash": "0xbbd1ed8580862d0faf4608742e24b56b2393511457e97f3bcd27f01d4c95bd58",
+        "timestamp": "0x6aa92c09"
+      },
+      "nftRuntimeKeccak256": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+      "publicDrop": {
+        "mintPrice": "0",
+        "startTime": "1789488020",
+        "endTime": "1789491620",
+        "maxTotalMintableByWallet": "1"
+      },
+      "blockOverrides": {
+        "time": "0x6aa96b95"
+      },
+      "call": {
+        "from": "0x70F53d375deFDFCA28d2F0eD72a08CD8023d5097",
+        "to": "0x8fd5AddF578Ef2546b9FCb92B13285F0765A6cAc",
+        "value": "0x0",
+        "gas": "0xb71b00",
+        "gasPrice": "0x0",
+        "data": "0xaba5ede1000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000a"
+      },
+      "fullMintResponse": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "result": "0x000000000000000000000000000000000000000000000000000000000000000a"
+      },
+      "decodedMintCount": "10",
+      "status": "success",
+      "factoryCodeAfter": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": "0x"
+      }
+    },
+    {
+      "endpoint": "https://robinhood-rpc.publicnode.com",
+      "chainIdResponse": {
+        "jsonrpc": "2.0",
+        "result": "0x1237",
+        "id": 10
+      },
+      "factoryCodeBefore": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "result": "0x"
+      },
+      "syntheticSenderCode": {
+        "jsonrpc": "2.0",
+        "id": 13,
+        "result": "0x"
+      },
+      "publicDropResponse": {
+        "jsonrpc": "2.0",
+        "id": 14,
+        "result": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006aa96b94000000000000000000000000000000000000000000000000000000006aa979a4000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000003e80000000000000000000000000000000000000000000000000000000000000001"
+      },
+      "mintStatsResponse": {
+        "jsonrpc": "2.0",
+        "id": 16,
+        "result": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000038c0000000000000000000000000000000000000000000000000000000000000400"
+      },
+      "latestBlock": {
+        "number": "0x3cad1b5",
+        "hash": "0xff18aace7ecb9b41d54362b94eb29e3007f1e069a27253ef1938ac8ce0d76397",
+        "timestamp": "0x6aa92c0f"
+      },
+      "nftRuntimeKeccak256": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+      "publicDrop": {
+        "mintPrice": "0",
+        "startTime": "1789488020",
+        "endTime": "1789491620",
+        "maxTotalMintableByWallet": "1"
+      },
+      "blockOverrides": {
+        "time": "0x6aa96b95"
+      },
+      "call": {
+        "from": "0x70F53d375deFDFCA28d2F0eD72a08CD8023d5097",
+        "to": "0x8fd5AddF578Ef2546b9FCb92B13285F0765A6cAc",
+        "value": "0x0",
+        "gas": "0xb71b00",
+        "gasPrice": "0x0",
+        "data": "0xaba5ede1000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000a"
+      },
+      "fullMintResponse": {
+        "jsonrpc": "2.0",
+        "id": 17,
+        "result": "0x000000000000000000000000000000000000000000000000000000000000000a"
+      },
+      "decodedMintCount": "10",
+      "status": "success",
+      "factoryCodeAfter": {
+        "jsonrpc": "2.0",
+        "id": 18,
+        "result": "0x"
+      }
+    }
+  ],
+  "success": true,
+  "conclusion": "The complete factory runtime returned ten successful mints in a read-only eth_call with synthetic factory code and temporary public-stage timestamp. No original dependency code/storage was changed.",
+  "noPrivateKeyGeneratedOrUsed": true
+}

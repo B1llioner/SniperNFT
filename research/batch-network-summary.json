@@ -1,0 +1,36 @@
+{
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "blockNumber": 63608990,
+  "blockHash": "0x2d8d8c3bb295e5ca78d3c08a419220f18738962f7acf9f0ea099160c2a844253",
+  "blockTimestamp": 1789470275,
+  "blockTimeUTC": "2026-09-15T11:04:35.000Z",
+  "chainId": 4663,
+  "publicDrop": {
+    "mintPrice": "0",
+    "startTime": "1789488020",
+    "endTime": "1789491620",
+    "maxTotalMintableByWallet": "1",
+    "feeBps": "1000",
+    "restrictFeeRecipients": true
+  },
+  "mintStats": {
+    "wallet": "0x0000000000000000000000000000000000000123",
+    "minterNumMinted": "0",
+    "currentTotalSupply": "906",
+    "maxSupply": "1024",
+    "remaining": "118"
+  },
+  "code": {
+    "nft": {
+      "bytes": 17135,
+      "keccak256": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+      "matchesPrior": true
+    },
+    "seaDrop": {
+      "bytes": 21081,
+      "keccak256": "0x53e4b9339cf624803c9a7d0195576cca5b917920813508d86b3eb93dcbabeb5c",
+      "matchesPrior": true
+    }
+  },
+  "blockBaseFeePerGasWei": 67062000
+}

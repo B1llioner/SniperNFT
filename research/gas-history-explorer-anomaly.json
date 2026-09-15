@@ -1,0 +1,144 @@
+{
+  "kind": "explorer-fee-versus-two-rpc-receipts",
+  "recordedAt": "2026-09-15T13:08:05.761208Z",
+  "chainId": 4663,
+  "mainnetBroadcast": false,
+  "method": "Read-only eth_getTransactionByHash and eth_getTransactionReceipt on both endpoints; eth_getBlockByNumber on official RPC; public explorer HTML.",
+  "finding": "The first legacy transaction explorer page reports transaction gasPrice multiplied by gasUsed as its fee. Both RPC receipts instead report an effectiveGasPrice equal to the much lower block base fee. Receipt-derived fees are used for actual-cost comparisons.",
+  "block": {
+    "number": "0x3cbac4f",
+    "hash": "0x236b6136b5ebacd62bab775b0150d827e6c4b98e4e1657eeed9cadb9b06c91ba",
+    "timestamp": "0x6aa94264",
+    "baseFeePerGas": "0x3e5b610",
+    "gasUsed": "0x2237e4"
+  },
+  "transactions": [
+    {
+      "hash": "0xdc935dff30ca7e12c039ba3ee977c269ab71b1054eba9f868584bf3b683bb555",
+      "explorerUrl": "https://robin.etherscan.io/tx/0xdc935dff30ca7e12c039ba3ee977c269ab71b1054eba9f868584bf3b683bb555",
+      "timestampUtc": "2026-09-15T13:04:36Z",
+      "transactionGasPriceGwei": "116.609300892",
+      "receiptEffectiveGasPriceGwei": "0.065386",
+      "gasUsed": "33670",
+      "receiptDerivedFeeWei": "2201546620000",
+      "receiptDerivedFeeEth": "0.00000220154662",
+      "transactionGasPriceTimesGasUsedEth": "0.00392623516103364",
+      "status": "reverted",
+      "rpcEvidence": [
+        {
+          "endpoint": "https://robinhood-rpc.publicnode.com",
+          "transaction": {
+            "hash": "0xdc935dff30ca7e12c039ba3ee977c269ab71b1054eba9f868584bf3b683bb555",
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0x35e88a70a19a0fe9d15d802e6e376a80b2180058",
+            "to": "0x39b37fe004b9bcda781784345d2ffc84ef4b8ce6",
+            "gas": "0x67850",
+            "gasPrice": "0x1b2674b99c"
+          },
+          "receipt": {
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0x35e88a70a19a0fe9d15d802e6e376a80b2180058",
+            "to": "0x39b37fe004b9bcda781784345d2ffc84ef4b8ce6",
+            "transactionHash": "0xdc935dff30ca7e12c039ba3ee977c269ab71b1054eba9f868584bf3b683bb555",
+            "gasUsed": "0x8386",
+            "gasUsedForL1": "0x0",
+            "effectiveGasPrice": "0x3e5b610",
+            "status": "0x0"
+          }
+        },
+        {
+          "endpoint": "https://rpc.mainnet.chain.robinhood.com",
+          "transaction": {
+            "hash": "0xdc935dff30ca7e12c039ba3ee977c269ab71b1054eba9f868584bf3b683bb555",
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0x35e88a70a19a0fe9d15d802e6e376a80b2180058",
+            "to": "0x39b37fe004b9bcda781784345d2ffc84ef4b8ce6",
+            "gas": "0x67850",
+            "gasPrice": "0x1b2674b99c"
+          },
+          "receipt": {
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0x35e88a70a19a0fe9d15d802e6e376a80b2180058",
+            "to": "0x39b37fe004b9bcda781784345d2ffc84ef4b8ce6",
+            "transactionHash": "0xdc935dff30ca7e12c039ba3ee977c269ab71b1054eba9f868584bf3b683bb555",
+            "gasUsed": "0x8386",
+            "gasUsedForL1": "0x0",
+            "effectiveGasPrice": "0x3e5b610",
+            "status": "0x0"
+          }
+        }
+      ],
+      "explorerDisplayedTransactionFeeEth": "0.00392623516103364",
+      "explorerDisplayedGasPriceGwei": "116.609300892"
+    },
+    {
+      "hash": "0x348cd43a23b4c2ac2a72c60fb8c9b91075c6b870eef3497c18f8a56f239bf697",
+      "explorerUrl": "https://robin.etherscan.io/tx/0x348cd43a23b4c2ac2a72c60fb8c9b91075c6b870eef3497c18f8a56f239bf697",
+      "timestampUtc": "2026-09-15T13:04:36Z",
+      "transactionGasPriceGwei": "97.418494206",
+      "receiptEffectiveGasPriceGwei": "0.065386",
+      "gasUsed": "36609",
+      "receiptDerivedFeeWei": "2393716074000",
+      "receiptDerivedFeeEth": "0.000002393716074",
+      "transactionGasPriceTimesGasUsedEth": "0.003566393654387454",
+      "status": "reverted",
+      "rpcEvidence": [
+        {
+          "endpoint": "https://robinhood-rpc.publicnode.com",
+          "transaction": {
+            "hash": "0x348cd43a23b4c2ac2a72c60fb8c9b91075c6b870eef3497c18f8a56f239bf697",
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0xbfd6eb612931f83a626375f08036990924e50f1f",
+            "to": "0x7e9c97c3abc5bce23b182b05bbe5833ce0588894",
+            "gas": "0x7b46e",
+            "gasPrice": "0x16ae9840fe"
+          },
+          "receipt": {
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0xbfd6eb612931f83a626375f08036990924e50f1f",
+            "to": "0x7e9c97c3abc5bce23b182b05bbe5833ce0588894",
+            "transactionHash": "0x348cd43a23b4c2ac2a72c60fb8c9b91075c6b870eef3497c18f8a56f239bf697",
+            "gasUsed": "0x8f01",
+            "gasUsedForL1": "0x0",
+            "effectiveGasPrice": "0x3e5b610",
+            "status": "0x0"
+          }
+        },
+        {
+          "endpoint": "https://rpc.mainnet.chain.robinhood.com",
+          "transaction": {
+            "hash": "0x348cd43a23b4c2ac2a72c60fb8c9b91075c6b870eef3497c18f8a56f239bf697",
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0xbfd6eb612931f83a626375f08036990924e50f1f",
+            "to": "0x7e9c97c3abc5bce23b182b05bbe5833ce0588894",
+            "gas": "0x7b46e",
+            "gasPrice": "0x16ae9840fe"
+          },
+          "receipt": {
+            "type": "0x0",
+            "blockNumber": "0x3cbac4f",
+            "from": "0xbfd6eb612931f83a626375f08036990924e50f1f",
+            "to": "0x7e9c97c3abc5bce23b182b05bbe5833ce0588894",
+            "transactionHash": "0x348cd43a23b4c2ac2a72c60fb8c9b91075c6b870eef3497c18f8a56f239bf697",
+            "gasUsed": "0x8f01",
+            "gasUsedForL1": "0x0",
+            "effectiveGasPrice": "0x3e5b610",
+            "status": "0x0"
+          }
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "These are two recent examples discovered while looking for expensive transactions, not historical fee maxima.",
+    "No historical balance-difference trace was performed. Fee derivation uses matching receipts from two independent public RPC endpoints.",
+    "The observed transaction-page mismatch does not establish the definitions of the separate daily gas chart; those chart metrics remain explicitly labelled as explorer-reported."
+  ]
+}

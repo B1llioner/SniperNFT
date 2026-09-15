@@ -1,0 +1,30 @@
+{
+  "name": "rare-friends-mint",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "mint": "node mint.mjs",
+    "batch": "node batch.mjs",
+    "launch": "node batch.mjs setup",
+    "start": "node batch.mjs start",
+    "benchmark": "node benchmark.mjs",
+    "inspect": "node mint.mjs --inspect --payload research/reference-transaction.json",
+    "test": "node --test test/*.test.mjs",
+    "compile:batch": "node scripts/compile-batch.mjs",
+    "test:batch": "node scripts/simulate-batch.mjs",
+    "simulate:rpc": "node scripts/simulate-rpc-batch.mjs"
+  },
+  "dependencies": {
+    "ethers": "6.17.0"
+  },
+  "overrides": {
+    "tmp": "0.2.7"
+  },
+  "devDependencies": {
+    "solc": "0.8.26"
+  }
+}

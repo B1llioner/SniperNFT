@@ -1,0 +1,30 @@
+- region "Notifications alt+T"
+- dialog "Connect with OpenSea":
+  - heading "Connect with OpenSea" [level=4]
+  - text: Email
+  - textbox "Continue with email"
+  - button [disabled]
+  - button "Continue with Google" [disabled]
+  - button "Continue with Apple" [disabled]
+  - text: or continue with an external wallet
+  - list:
+    - button "MetaMask":
+      - img
+      - text: MetaMask
+    - button "WalletConnect":
+      - img
+      - text: WalletConnect
+    - link "Phantom Open In New Tab":
+      - /url: https://phantom.app/download
+      - img
+      - text: Phantom
+      - img "Open In New Tab"
+    - button "More Wallet Options"
+  - text: By connecting your wallet and using OpenSea, you agree to our
+  - link "Terms of Service":
+    - /url: https://opensea.io/tos
+  - text: "&"
+  - link "Privacy Policy":
+    - /url: https://opensea.io/privacy
+  - text: .
+  - button "Close"

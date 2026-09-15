@@ -1,0 +1,7 @@
+{
+  "chainId": 4663,
+  "from": "0xYOUR_WALLET_ADDRESS",
+  "to": "0x00005ea00ac477b1030ce78506496e8c2de24bf5",
+  "value": "0",
+  "data": "0xYOUR_FRESH_MINTSIGNED_CALLDATA_FROM_OPENSEA"
+}

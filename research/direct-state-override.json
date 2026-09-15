@@ -1,0 +1,21 @@
+{
+  "kind": "read-only-direct-mint-simulation",
+  "mainnetBroadcast": false,
+  "recordedAt": "2026-09-15T11:35:25.562Z",
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "tx": {
+    "from": "0x70F53d375deFDFCA28d2F0eD72a08CD8023d5097",
+    "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+    "value": "0x0",
+    "gasPrice": "0x0",
+    "gas": "0x1e8480",
+    "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+  },
+  "blockOverrides": {
+    "time": "0x6aa96b95"
+  },
+  "result": "0x",
+  "quantity": 1,
+  "usesFactory": false,
+  "note": "Only the block timestamp was overridden for eth_call. All contract code and state remained original."
+}

@@ -1,0 +1,84 @@
+{
+  "sources": {
+    "chainlist": "https://api.etherscan.io/v2/chainlist",
+    "officialNetwork": "https://docs.robinhood.com/chain/connecting/",
+    "publicnode": "https://robinhood.publicnode.com/"
+  },
+  "network": {
+    "name": "Robinhood Chain mainnet",
+    "chainId": 4663,
+    "chainIdHex": "0x1237",
+    "rpc": "https://rpc.mainnet.chain.robinhood.com",
+    "fallbackRpc": "https://robinhood-rpc.publicnode.com",
+    "workingHeaders": {
+      "User-Agent": "Mozilla/5.0",
+      "Content-Type": "application/json"
+    }
+  },
+  "snapshot": {
+    "blockNumber": 63597731,
+    "timestamp": 1789469130,
+    "utc": "2026-09-15T10:45:30+00:00",
+    "note": "Getter calls used latest independently shortly after this block snapshot."
+  },
+  "contract": {
+    "address": "0x116eaa62241751e0c98da43d458600c6c17cd361",
+    "name": "Rare Friends Genesis",
+    "symbol": "GENESIS",
+    "runtimeBytes": 17135,
+    "runtimeMatchesExplorer": true,
+    "maxSupply": 1024,
+    "owner": "0x1ecbf27dc1f809179b9ef2d382cd76ccba21b6d2",
+    "creatorPayoutAddress": "0x1ecbf27dc1f809179b9ef2d382cd76ccba21b6d2",
+    "allowedSeaDrop": [
+      "0x00005ea00ac477b1030ce78506496e8c2de24bf5"
+    ]
+  },
+  "getMintStats": {
+    "wallet": "0x6b052bb4f5e54dee68cf96530d67c9b54283ace8",
+    "minterNumMinted": 1,
+    "currentTotalSupply": 906,
+    "maxSupply": 1024
+  },
+  "publicDrop": {
+    "mintPrice": 0,
+    "startTime": 1789488020,
+    "endTime": 1789491620,
+    "maxTotalMintableByWallet": 1,
+    "feeBps": 1000,
+    "restrictFeeRecipients": true
+  },
+  "signers": [
+    "0xfce4b31128100915f2980bbc3a08894ee5e8f8c3"
+  ],
+  "signedMintValidationParams": {
+    "minMintPrice": 0,
+    "maxMaxTotalMintableByWallet": 1024,
+    "minStartTime": 1789408820,
+    "maxEndTime": 1789578020,
+    "maxMaxTokenSupplyForStage": 1024,
+    "minFeeBps": 1000,
+    "maxFeeBps": 1000
+  },
+  "allowedFeeRecipients": [
+    "0x0000a26b00c1f0df003000390027140000faa719"
+  ],
+  "payers": [
+    "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f"
+  ],
+  "referenceReplayLatestEthCall": {
+    "error": "MintQuantityExceedsMaxMintedPerWallet",
+    "args": [
+      2,
+      1
+    ]
+  },
+  "limitations": [
+    "Historical NFT eth_getCode at transaction block failed on official RPC: metadata is not found.",
+    "Historical PublicNode requests received HTTP 403.",
+    "PublicNode debug_traceTransaction unavailable.",
+    "NFT totalSupply() reverts with empty data; getMintStats provided supply.",
+    "Current NFT runtime matches explorer byte-for-byte; historical runtime match not established.",
+    "No transactions broadcast."
+  ]
+}

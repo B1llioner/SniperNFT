@@ -1,0 +1,53 @@
+{
+  "kind": "local-anvil-fork",
+  "mainnetBroadcast": false,
+  "checks": [
+    "NotOwner",
+    "InvalidCount",
+    "InvalidCount",
+    "InvalidCount",
+    "InactiveStage",
+    "10 distinct helpers mint once and forward all 10 NFTs to recipient",
+    "InsufficientSupply",
+    "artificial remaining supply 3: exact 10 rejects; max10/min1 mints 3",
+    "artificial broken transfer hook reverts the complete batch without partial mints"
+  ],
+  "client": "anvil/v1.7.1",
+  "syntheticActors": "Anvil accounts 0 and 1 reset to ordinary EOAs locally; account 0 pays and receives.",
+  "forkBlock": 63609112,
+  "forkTimestamp": 1789470287,
+  "factorySourceSha256": "a25f3cda74163f4f5d6411c1faf5050494eb6bcd39955429e5c1691e1fa8d1a8",
+  "startSupply": "906",
+  "publicDrop": {
+    "startTime": "1789488020",
+    "endTime": "1789491620",
+    "mintPrice": "0"
+  },
+  "deploymentGasUsedLocal": "663256",
+  "batchGasUsedLocal": "2259304",
+  "tokenIds": [
+    "907",
+    "908",
+    "909",
+    "910",
+    "911",
+    "912",
+    "913",
+    "914",
+    "915",
+    "916"
+  ],
+  "helpers": [
+    "0x448aD97E7e508Ab5B0D5A2a1D9D1c1c9875bC321",
+    "0x166033Fe6c0F845dC244c53B756Cb3BDDE9a145A",
+    "0x1e4465862504Ca5157B16a816aABDa65140EDcDa",
+    "0xb3f3D8Fdf23E4B6B174E0Fe71262BCfdcE602F35",
+    "0xDDE4B2d78345486aCB933f28550aA81BA686bE5f",
+    "0xcb06C0dC6Bdd8AF146E903DD6BBb779C6D40093E",
+    "0x7FF2401099CaB3F2bF6aA10904D64cD8C923f002",
+    "0x610D8efB5e22cd38a567F005B588C70DFA27c609",
+    "0x86126736968BB5A54E909A5cf20E30F70d19Af24",
+    "0x2e89EB3ADb502f5e7e706Aa5FBfDF90869F35414"
+  ],
+  "note": "Time advanced on the local fork; scarcity and broken-hook cases used explicit local storage changes. Local gas omits chain-specific L1 posting costs. This is not a mainnet mint or a guarantee of inclusion."
+}

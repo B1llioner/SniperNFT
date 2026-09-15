@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+mint-payload.json
+batch.config.json
+.state/
+*.log
+.DS_Store
