@@ -49,6 +49,47 @@ test('latency statistics use successful samples only, nearest-rank percentiles, 
   assert.equal(failed.skipped, 2);
 });
 
+test('RPC invocation starts obey pacing under short, long and mixed latency without counting waits as latency', async () => {
+  const selected = options();
+  for (const latencies of [[10, 20, 30, 40], [170, 240, 130, 180], [250, 10, 180, 5]]) {
+    let time = 0; let destroyed = 0; let inFlight = 0;
+    const starts = []; const waits = []; const methods = [];
+    const report = await runBenchmark(selected, {
+      now: () => time,
+      wait: async ms => { assert.ok(ms > 0); waits.push(ms); time += ms; },
+      providerFactory: () => ({
+        async send(method, params) {
+          assert.equal(inFlight++, 0, 'Only one request per endpoint may be in flight.');
+          assert.deepEqual(params, []);
+          methods.push(method); starts.push(time);
+          const latency = latencies[starts.length - 1];
+          assert.ok(latency != null, 'Unexpected extra RPC request.');
+          await Promise.resolve();
+          time += latency; inFlight--;
+          return method === 'eth_chainId' ? '0x1237' : '0x64';
+        },
+        destroy() { destroyed++; },
+      }),
+    });
+    assert.equal(report.success, true);
+    assert.deepEqual(methods, ['eth_chainId', 'eth_blockNumber', 'eth_blockNumber', 'eth_blockNumber']);
+    for (let i = 1; i < starts.length; i++) {
+      assert.ok(starts[i] - starts[i - 1] >= selected.intervalMs);
+      assert.equal(starts[i] - starts[i - 1], Math.max(selected.intervalMs, latencies[i - 1]));
+    }
+    assert.deepEqual(waits, latencies.slice(0, -1).map(ms => Math.max(0, selected.intervalMs - ms)).filter(ms => ms > 0));
+    const endpoint = report.endpoints[0];
+    assert.equal(endpoint.coldConnectAndChainRead.p50Ms, latencies[0]);
+    const warm = latencies.slice(1).sort((a, b) => a - b);
+    assert.equal(endpoint.warm.minMs, warm[0]);
+    assert.equal(endpoint.warm.p50Ms, warm[1]);
+    assert.equal(endpoint.warm.p95Ms, warm[2]);
+    assert.equal(endpoint.warm.maxMs, warm[2]);
+    assert.equal(endpoint.warm.successes, selected.samples);
+    assert.equal(destroyed, 1);
+  }
+});
+
 test('wrong-chain and failed warm reads never produce a success summary or leaked RPC credentials', async () => {
   let destroyed = 0;
   const bad = new Error('secret-url-path and secret-api-query');
@@ -94,7 +135,7 @@ async function fixture(t, settings = {}) {
       for await (const chunk of request) { body += chunk; assert.ok(body.length < 65536); }
       const message = JSON.parse(body); ({ id } = message);
       const { method, params } = message;
-      calls.push({ method, params, at: performance.now() });
+      calls.push({ method, params });
       let result;
       switch (method) {
         case 'eth_chainId': result = '0x1237'; break;
@@ -164,12 +205,13 @@ function parsed(result) {
   return JSON.parse(result.stdout);
 }
 
-test('default CLI only checks chain and paced head reads, independent of PRIVATE_KEY', async t => {
+test('default CLI only checks chain and head reads, independent of PRIVATE_KEY', async t => {
   const rpc = await fixture(t);
   const report = parsed(await cli(rpc));
   assert.equal(report.success, true);
   assert.deepEqual(rpc.calls.map(call => call.method), ['eth_chainId', 'eth_blockNumber', 'eth_blockNumber', 'eth_blockNumber']);
-  for (let i = 1; i < rpc.calls.length; i++) assert.ok(rpc.calls[i].at - rpc.calls[i - 1].at >= 75, 'RPC reads were not paced');
+  // Server arrival gaps include variable transport delay. Client start pacing
+  // is checked above with a controlled clock, independently of machine load.
   assert.equal(report.endpoints[0].warm.successes, 3);
   assert.equal(report.offline.warmSign.successes, 3);
 });

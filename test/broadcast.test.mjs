@@ -92,6 +92,30 @@ test('a mismatched returned hash cannot establish acceptance', async () => {
   assert.deepEqual(endpoint.calls.map(call => call.method), ['eth_sendRawTransaction', 'eth_getTransactionByHash']);
 });
 
+test('send-only sequencer uses separate read RPCs to resolve an ambiguous acknowledgement', async () => {
+  const sequencer = provider(rejects, () => { assert.fail('No lookup may reach the sequencer.'); });
+  const firstReader = provider(() => assert.fail('No raw may reach a reader.'), null);
+  const secondReader = provider(() => assert.fail('No raw may reach a reader.'), { hash });
+  const result = await broadcastIdentical(raw, [sequencer], {
+    lookupProviders: [firstReader, secondReader], attempts: 3, retryDelayMs: 0,
+  });
+  assert.deepEqual(result, { hash, acceptedBy: [], knownBy: [0], failed: [] });
+  assert.deepEqual(sequencer.calls.map(call => call.method), ['eth_sendRawTransaction']);
+  for (const reader of [firstReader, secondReader]) {
+    assert.deepEqual(reader.calls, [{ method: 'eth_getTransactionByHash', params: [hash] }]);
+  }
+});
+
+test('sequencer retries preserve bytes and never fall back to broadcasting through readers', async () => {
+  const sequencer = provider(rejects);
+  const reader = provider(() => assert.fail('Broadcast fallback is forbidden.'), { hash: wrongHash });
+  await assert.rejects(broadcastIdentical(raw, [sequencer], {
+    lookupProviders: [reader], attempts: 2, retryDelayMs: 0,
+  }), error => error instanceof BroadcastError && error.hash === hash);
+  assert.deepEqual(sequencer.calls, Array.from({ length: 2 }, () => ({ method: 'eth_sendRawTransaction', params: [raw] })));
+  assert.ok(reader.calls.every(call => call.method === 'eth_getTransactionByHash'));
+});
+
 test('uncertain failures have bounded retries and expose no raw or provider details', async () => {
   const events = [];
   const providers = [provider(rejects), provider(rejects, () => { throw new Error(raw); })];
@@ -157,6 +181,39 @@ test('progress callback failures cannot hide an accepted transaction', async () 
   assert.deepEqual(result.acceptedBy, [0]);
 });
 
+test('cancellation interrupts the retry delay without another submission or callback', async () => {
+  const controller = new AbortController();
+  const endpoint = provider(rejects);
+  const events = [];
+  const sending = broadcastIdentical(raw, [endpoint], {
+    signal: controller.signal, attempts: 5, retryDelayMs: 5000,
+    onAttempt: event => {
+      events.push(event);
+      if (event.status === 'failed') setImmediate(() => controller.abort());
+    },
+  });
+  let timer;
+  try {
+    await assert.rejects(Promise.race([sending, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Cancellation did not interrupt the retry delay.')), 500);
+    })]), error => error instanceof BroadcastError && error.hash === hash && /cancelled/.test(error.message));
+  } finally { clearTimeout(timer); }
+  assert.deepEqual(events.map(event => event.status), ['sending', 'failed']);
+  assert.equal(endpoint.calls.filter(call => call.method === 'eth_sendRawTransaction').length, 1);
+});
+
+test('already cancelled signals and cancellation from progress prevent first submission', async () => {
+  const controller = new AbortController();
+  const endpoint = provider(() => hash);
+  controller.abort();
+  await assert.rejects(broadcastIdentical(raw, [endpoint], { signal: controller.signal }), /cancelled/);
+  const next = new AbortController();
+  await assert.rejects(broadcastIdentical(raw, [endpoint], {
+    signal: next.signal, onAttempt: () => next.abort(),
+  }), /cancelled/);
+  assert.equal(endpoint.calls.length, 0);
+});
+
 test('invalid bounds and providers fail before any network calls', async () => {
   const endpoint = provider(() => hash);
   const invalid = [
@@ -164,6 +221,9 @@ test('invalid bounds and providers fail before any network calls', async () => {
     { attempts: 0 }, { attempts: 6 }, { attempts: '2' },
     { retryDelayMs: -1 }, { retryDelayMs: 5001 }, { retryDelayMs: NaN },
     { onAttempt: null }, null,
+    { lookupProviders: [] }, { lookupProviders: null }, { lookupProviders: [{}] },
+    { lookupProviders: Array(9).fill(endpoint) },
+    { signal: {} },
   ];
   for (const options of invalid) await assert.rejects(broadcastIdentical(raw, [endpoint], options), BroadcastError);
   for (const providers of [null, [], Array(9).fill(endpoint), [{}], [null]]) {

@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-09-15T15:50:50.641Z",
+  "implementation": "lib/sequencer.mjs openSequencer + ensureHealthy",
+  "sequencer": "https://sequencer.mainnet.chain.robinhood.com",
+  "reader": "https://robinhood-rpc.publicnode.com",
+  "progress": [
+    {
+      "sequencerStatus": "publisher healthy; connection warm"
+    }
+  ],
+  "healthConnectMs": 891.27,
+  "chainId": "0x1237",
+  "blockNumber": "0x3cd24ed",
+  "timestamp": "0x6aa96959",
+  "transactionsSigned": 0,
+  "transactionsSubmitted": 0,
+  "note": "Read-only production transport smoke check. Health latency does not measure raw transaction submission or inclusion."
+}

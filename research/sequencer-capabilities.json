@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-15T15:41:24.487Z",
+  "network": {
+    "name": "Robinhood Chain mainnet",
+    "chainId": 4663,
+    "sequencer": "https://sequencer.mainnet.chain.robinhood.com",
+    "readRpc": "https://rpc.mainnet.chain.robinhood.com",
+    "chainIdEvidence": "Official Robinhood documentation; the sequencer itself does not expose eth_chainId."
+  },
+  "scope": {
+    "readOnlyRpcProbes": 6,
+    "invalidSendHandlerProbes": 1,
+    "validTransactionsSubmitted": 0,
+    "transactionsSigned": 0,
+    "privateKeysRead": false,
+    "productionCodeChanged": false,
+    "benchmark": false,
+    "requestTimeoutMs": 10000,
+    "responseLimitBytes": 1048576,
+    "automaticRetries": false
+  },
+  "probes": [
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "rpc_modules",
+      "params": [],
+      "requestedAt": "2026-09-15T15:39:26.133Z",
+      "httpStatus": 200,
+      "reusedSocket": false,
+      "connectionHeader": null,
+      "responseBytes": 72,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "arb": "1.0",
+          "eth": "1.0",
+          "rpc": "1.0"
+        }
+      },
+      "elapsedMs": 904
+    },
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "rpc_modules",
+      "params": [],
+      "requestedAt": "2026-09-15T15:39:27.038Z",
+      "httpStatus": 200,
+      "reusedSocket": true,
+      "connectionHeader": null,
+      "responseBytes": 72,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "arb": "1.0",
+          "eth": "1.0",
+          "rpc": "1.0"
+        }
+      },
+      "elapsedMs": 267
+    },
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_chainId",
+      "params": [],
+      "requestedAt": "2026-09-15T15:39:27.305Z",
+      "httpStatus": 200,
+      "reusedSocket": true,
+      "connectionHeader": null,
+      "responseBytes": 116,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_chainId does not exist/is not available"
+        }
+      },
+      "elapsedMs": 266
+    },
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_getBlockByNumber",
+      "params": [
+        "latest",
+        false
+      ],
+      "requestedAt": "2026-09-15T15:39:27.571Z",
+      "httpStatus": 200,
+      "reusedSocket": true,
+      "connectionHeader": null,
+      "responseBytes": 125,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_getBlockByNumber does not exist/is not available"
+        }
+      },
+      "elapsedMs": 267
+    },
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "arb_checkPublisherHealth",
+      "params": [],
+      "requestedAt": "2026-09-15T15:41:22.897Z",
+      "httpStatus": 200,
+      "reusedSocket": false,
+      "responseBytes": 39,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": null
+      },
+      "elapsedMs": 891
+    },
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "arb_checkPublisherHealth",
+      "params": [],
+      "requestedAt": "2026-09-15T15:41:23.789Z",
+      "httpStatus": 200,
+      "reusedSocket": true,
+      "responseBytes": 39,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "result": null
+      },
+      "elapsedMs": 405
+    },
+    {
+      "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_sendRawTransaction",
+      "params": [
+        "0x"
+      ],
+      "requestedAt": "2026-09-15T15:41:24.194Z",
+      "httpStatus": 200,
+      "reusedSocket": true,
+      "responseBytes": 89,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": {
+          "code": -32000,
+          "message": "typed transaction too short"
+        }
+      },
+      "elapsedMs": 291
+    }
+  ],
+  "conclusions": {
+    "supportedReadMethods": {
+      "rpc_modules": {
+        "result": {
+          "arb": "1.0",
+          "eth": "1.0",
+          "rpc": "1.0"
+        },
+        "meaning": "RPC service and namespace discovery only; namespace presence does not promise individual method support."
+      },
+      "arb_checkPublisherHealth": {
+        "result": null,
+        "meaning": "Successful publisher health check at observation time; no guarantee of future transaction acceptance or inclusion."
+      }
+    },
+    "unsupportedReadMethods": {
+      "eth_chainId": -32601,
+      "eth_getBlockByNumber": -32601
+    },
+    "sendRawTransaction": {
+      "handlerObserved": true,
+      "proof": "One empty byte string returned -32000: typed transaction too short, not method not found.",
+      "validAcceptanceTested": false
+    },
+    "connectionReuse": {
+      "confirmed": true,
+      "evidence": "Second sequential rpc_modules and arb_checkPublisherHealth requests each reported Node ClientRequest.reusedSocket=true through their respective https.Agent pools.",
+      "limit": "Only client-to-public-endpoint TCP/TLS reuse was observed. Backend routing, long idle survival and submission latency were not measured."
+    },
+    "healthHttpPath": "No HTTP /health, /liveness or /readiness path was assumed or probed; the observed health method is JSON-RPC arb_checkPublisherHealth."
+  },
+  "invalidPayloadSafety": {
+    "payload": "0x",
+    "decodedBytes": 0,
+    "reason": "The empty byte sequence has no transaction type, fields, sender or signature. The Nitro go-ethereum handler decodes with Transaction.UnmarshalBinary before SubmitTransaction; decodeTyped rejects length <= 1 with typed transaction too short. The observed response matches that decoder rejection.",
+    "sourceHandler": "https://github.com/OffchainLabs/go-ethereum/blob/master/internal/ethapi/api.go#L1788-L1807",
+    "sourceDecoder": "https://github.com/OffchainLabs/go-ethereum/blob/master/core/types/transaction.go#L236-L240"
+  },
+  "recommendedRoles": {
+    "readRpc": [
+      "eth_chainId verification",
+      "latest block and timestamp for waiting",
+      "balance and nonce",
+      "contract code and state getters",
+      "eth_call / eth_estimateGas / supported simulations",
+      "eth_getTransactionByHash and eth_getTransactionReceipt"
+    ],
+    "sequencer": [
+      "eth_sendRawTransaction with locally validated canonical signed bytes for chain 4663",
+      "arb_checkPublisherHealth for bounded warm checks on the same persistent transport"
+    ],
+    "warming": "Reuse the same provider and HTTPS agent that will submit. Call arb_checkPublisherHealth before waiting and at a bounded interval while waiting. Treat JSON-RPC result:null without error as success. rpc_modules can test transport availability if health is unsupported, but does not replace publisher health. Stop background checks on cancellation and destroy the provider after use.",
+    "endpointBinding": "Use the exact official HTTPS sequencer URL, validate TLS, reject redirects and credential-bearing URLs. Validate chain 4663 through an independent read RPC and locally in the signed transaction. Do not require eth_chainId from this send-only endpoint.",
+    "workflow": "Read and preflight via RPC; submit factory deployment through sequencer; confirm receipt and deployed code via RPC; wait for observed chain time or block using RPC; submit mint through sequencer; verify receipt and NFT events via RPC.",
+    "uncertainSubmission": "A transport timeout or lost response does not establish rejection. Preserve the raw transaction and local hash; query that hash on read RPC. Any retry must submit the identical bytes and nonce; do not replace it with a new deployment or mint nonce.",
+    "existingIntegrationNote": "The pre-integration broadcaster probed eth_getTransactionByHash on the submitting provider after an uncertain result. The sequencer integration supplies separate lookupProviders for this read. Sequencer providers stay separate from read providers that require eth_chainId.",
+    "latency": "Direct submission removes a configured application forwarding step, but this research does not establish that it is faster from this host. Health RPC timings are not submission or inclusion benchmarks."
+  },
+  "primarySources": [
+    {
+      "url": "https://docs.robinhood.com/chain/connecting/",
+      "supports": "Robinhood mainnet chain ID 4663 and separate official public RPC/sequencer endpoints; public endpoints are rate limited."
+    },
+    {
+      "url": "https://docs.robinhood.com/chain/",
+      "supports": "Robinhood uses first-come, first-served sequencing based on arrival time; paying higher fees does not bypass other transactions."
+    },
+    {
+      "url": "https://docs.arbitrum.io/for-devs/dev-tools-and-resources/chain-info",
+      "supports": "Arbitrum documents separate read/write RPC and sequencer submission endpoints, including sendRawTransaction and sendRawTransactionConditional. Queue defaults and timing on this page concern its documented Arbitrum endpoints, not a verified Robinhood configuration."
+    },
+    {
+      "url": "https://github.com/OffchainLabs/nitro/blob/a618155919315241665356fe60f3cd00d66d5e46/execution/gethexec/forwarder.go#L188-L209",
+      "revision": "a618155919315241665356fe60f3cd00d66d5e46",
+      "supports": "Nitro TxForwarder.CheckHealth calls arb_checkPublisherHealth on the upstream publisher; its client caches health for two seconds and bounds the health call timeout."
+    },
+    {
+      "url": "https://github.com/OffchainLabs/nitro/blob/a618155919315241665356fe60f3cd00d66d5e46/execution/gethexec/forwarder.go#L114-L139",
+      "revision": "a618155919315241665356fe60f3cd00d66d5e46",
+      "supports": "Normal forwarded transactions use the upstream Ethereum client SendTransaction; conditional options take a separate conditional path."
+    },
+    {
+      "url": "https://github.com/OffchainLabs/go-ethereum/blob/master/internal/ethapi/api.go#L1788-L1807",
+      "supports": "SendRawTransaction decodes the supplied bytes before SubmitTransaction."
+    },
+    {
+      "url": "https://github.com/OffchainLabs/go-ethereum/blob/master/core/types/transaction.go#L236-L240",
+      "supports": "The transaction decoder rejects zero-byte and one-byte typed envelopes."
+    }
+  ],
+  "limitations": [
+    "No valid transaction or signed raw bytes were submitted; send handler reachability is confirmed, successful mainnet inclusion is not.",
+    "The exact deployed sequencer binary version, backend topology, configured queue size, rate limit and timeout are unknown.",
+    "No claim that Robinhood exposes every method in the arb or eth namespace; sendRawTransactionConditional was not probed.",
+    "The observed successful health and TCP reuse are point-in-time capabilities, not an uptime, idle lifetime or latency guarantee.",
+    "Earlier separate evidence research/simulate-capabilities.json records eth_simulateV1, eth_simulateV3 and web3_clientVersion as unavailable on this sequencer. They were not repeated here.",
+    "Only this research JSON file was changed for this task; no implementation changes are implied by recommendedRoles."
+  ]
+}

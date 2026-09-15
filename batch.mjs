@@ -8,9 +8,10 @@ import { Interface, Wallet, ZeroAddress, getAddress, getCreateAddress, isHexStri
 import { CONFIG, MintError, NFT_ABI, SEADROP_ABI, createProvider, safeError, parseUint } from './mint.mjs';
 import { broadcastIdentical, BroadcastError } from './lib/broadcast.mjs';
 import { waitForPublicStage } from './lib/warm.mjs';
+import { SEQUENCER_URL, openSequencer } from './lib/sequencer.mjs';
 
 const NFT_CODE_HASH = '0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c';
-const CONFIG_KEYS = new Set(['quantity', 'minQuantity', 'recipient', 'factory', 'rpcUrls', 'concurrency', 'attempts', 'retryDelayMs', 'maxGasCostEth', 'receiptTimeoutSeconds', 'maxFeeMultiplier', 'waitTimeoutSeconds', 'pollIntervalMs', 'keepAliveIntervalMs']);
+const CONFIG_KEYS = new Set(['quantity', 'minQuantity', 'recipient', 'factory', 'rpcUrls', 'concurrency', 'attempts', 'retryDelayMs', 'maxGasCostEth', 'receiptTimeoutSeconds', 'maxFeeMultiplier', 'waitTimeoutSeconds', 'pollIntervalMs', 'keepAliveIntervalMs', 'sequencer', 'sequencerUrl', 'waitUntilTimestamp', 'waitUntilBlock']);
 const SEA_READ = new Interface(SEADROP_ABI);
 const ARB_GAS_INFO = '0x000000000000000000000000000000000000006c';
 const ARB_GAS_ABI = new Interface(['function getMaxTxGasLimit() view returns (uint256)']);
@@ -65,10 +66,11 @@ export function parseBatchArgs(argv) {
   const args = [...argv];
   const result = {};
   if (args[0] && !args[0].startsWith('--')) result.command = args.shift();
-  const flags = new Set(['help', 'send', 'wait']);
+  const flags = new Set(['help', 'send', 'wait', 'sequencer']);
   const values = new Set(['config', 'from', 'recipient', 'factory', 'rpc', 'quantity', 'min-quantity',
     'max-count', 'min-count', 'max-gas-cost-eth', 'receipt-timeout', 'concurrency', 'attempts', 'retry-delay-ms',
-    'max-fee-multiplier', 'wait-timeout', 'poll-interval-ms', 'keep-alive-interval-ms']);
+    'max-fee-multiplier', 'wait-timeout', 'poll-interval-ms', 'keep-alive-interval-ms',
+    'sequencer-url', 'wait-until-timestamp', 'wait-until-block']);
   for (let i = 0; i < args.length; i++) {
     check(args[i].startsWith('--'), 'Use named options; see --help.');
     const key = args[i].slice(2);
@@ -99,6 +101,12 @@ export function resolveBatchOptions(args, config = {}, from) {
   check(typeof gasCost === 'string' && /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/.test(gasCost), 'maxGasCostEth must be a non-negative ETH amount string.');
   const rpcUrls = args.rpc ? [args.rpc] : config.rpcUrls ?? [process.env.RPC_URL ?? CONFIG.rpc];
   check(Array.isArray(rpcUrls) && rpcUrls.length >= 1 && rpcUrls.length <= 8 && rpcUrls.every(url => typeof url === 'string'), 'rpcUrls must contain between 1 and 8 URL strings.');
+  check(config.sequencer == null || typeof config.sequencer === 'boolean', 'sequencer must be a boolean.');
+  const sequencerUrl = args['sequencer-url'] ?? config.sequencerUrl;
+  check(sequencerUrl == null || (typeof sequencerUrl === 'string' && sequencerUrl.length > 0), 'sequencerUrl must be a URL string.');
+  check(config.sequencer !== false || sequencerUrl == null || args.sequencer || args['sequencer-url'], 'sequencerUrl conflicts with sequencer: false.');
+  const sequencer = Boolean(args.sequencer || args['sequencer-url'] || config.sequencer || sequencerUrl);
+  const optionalUint = (value, name) => value == null ? undefined : parseUint(value, name);
   const sender = address(from ?? args.from, 'from');
   const recipient = address(args.recipient ?? config.recipient ?? sender, 'recipient');
   const route = args.command === 'deploy' ? 'deploy' : quantity === 1 ? 'direct' : 'batch';
@@ -106,6 +114,9 @@ export function resolveBatchOptions(args, config = {}, from) {
   return { command: args.command, route, from: sender, recipient,
     factory: route === 'batch' ? address(args.factory ?? config.factory, 'factory') : undefined,
     quantity: BigInt(quantity), minQuantity: BigInt(minQuantity), rpcUrls: [...new Set(rpcUrls)],
+    sequencer, sequencerUrl: sequencer ? sequencerUrl ?? SEQUENCER_URL : undefined,
+    targetTimestamp: optionalUint(args['wait-until-timestamp'] ?? config.waitUntilTimestamp, 'waitUntilTimestamp'),
+    targetBlock: optionalUint(args['wait-until-block'] ?? config.waitUntilBlock, 'waitUntilBlock'),
     maxGasCost: parseUint(parseEther(gasCost), 'maxGasCostEth'),
     receiptTimeoutSeconds: bounded(args['receipt-timeout'] ?? config.receiptTimeoutSeconds ?? 120, 1, 600, 'receiptTimeoutSeconds'),
     concurrency: bounded(args.concurrency ?? config.concurrency ?? 2, 1, 8, 'concurrency'),
@@ -200,7 +211,7 @@ export async function readPublicStage(provider, options) {
   const [walletMinted, minted, maximum] = DIRECT_NFT.decodeFunctionResult('getMintStats', encodedStats);
   check(maximum >= minted && maximum - minted >= options.minQuantity, 'Insufficient remaining NFT supply for the configured minimum.');
   if (options.quantity === 1n) check(walletMinted < drop.maxTotalMintableByWallet, 'The sending wallet has reached its public mint limit.');
-  return { timestamp: parseUint(block?.timestamp, 'block timestamp'), startTime: drop.startTime, endTime: drop.endTime,
+  return { timestamp: parseUint(block?.timestamp, 'block timestamp'), blockNumber: parseUint(block?.number, 'block number'), startTime: drop.startTime, endTime: drop.endTime,
     mintPrice: drop.mintPrice, maxTotalMintableByWallet: drop.maxTotalMintableByWallet };
 }
 export async function preflightBatch(provider, artifact, options, prepared, timings = {}) {
@@ -218,6 +229,12 @@ export async function preflightBatch(provider, artifact, options, prepared, timi
     checked = { tx: prepared.tx, block };
   } else checked = await prepareBatch(provider, artifact, options);
   const { tx, block } = checked;
+  if (options.command === 'mint') {
+    check(options.targetTimestamp == null || parseUint(block?.timestamp, 'block timestamp') >= options.targetTimestamp,
+      'Latest preflight block is below the requested wait timestamp. Submission stopped.');
+    check(options.targetBlock == null || parseUint(block?.number, 'block number') >= options.targetBlock,
+      'Latest preflight block is below the requested wait block. Submission stopped.');
+  }
   const timed = async (name, operation) => {
     const started = performance.now();
     try { return await operation(); } finally { timings[name] = Math.round((performance.now() - started) * 100) / 100; }
@@ -245,30 +262,29 @@ export async function preflightBatch(provider, artifact, options, prepared, timi
   check(estimate > 0n, 'RPC returned a zero gas estimate.');
   return { tx, block, estimate, predictedCount };
 }
-export async function gasQuote(provider, estimate, block, maxCost, maxFeeMultiplier = 2) {
-  check(Number.isSafeInteger(maxFeeMultiplier) && maxFeeMultiplier >= 1 && maxFeeMultiplier <= 20, 'maxFeeMultiplier must be between 1 and 20.');
-  const gasLimit = (estimate * 120n + 99n) / 100n;
+export async function checkGasLimit(provider, gasLimit, block) {
   check(gasLimit <= parseUint(block.gasLimit), 'Estimated transaction exceeds the block gas limit.');
-  const readNitroLimit = async () => {
-    let encoded;
-    try {
-      encoded = await provider.send('eth_call', [{ to: ARB_GAS_INFO, data: ARB_GAS_ABI.encodeFunctionData('getMaxTxGasLimit') }, 'latest']);
-    } catch {
-      throw new MintError('Cannot read the required Robinhood Nitro transaction gas limit from ArbGasInfo. Submission stopped.');
-    }
-    check(isHexString(encoded, 32), 'RPC returned an invalid Nitro transaction gas limit. Submission stopped.');
-    const [limit] = ARB_GAS_ABI.decodeFunctionResult('getMaxTxGasLimit', encoded);
-    check(limit > 0n && limit < (1n << 64n), 'RPC returned an invalid Nitro transaction gas limit. Submission stopped.');
-    return limit;
-  };
-  const [maxTxGasLimit, rawFee] = await Promise.all([
-    readNitroLimit(),
-    provider.send(block.baseFeePerGas != null ? 'eth_maxPriorityFeePerGas' : 'eth_gasPrice', []),
-  ]);
+  let encoded;
+  try {
+    encoded = await provider.send('eth_call', [{ to: ARB_GAS_INFO, data: ARB_GAS_ABI.encodeFunctionData('getMaxTxGasLimit') }, 'latest']);
+  } catch {
+    throw new MintError('Cannot read the required Robinhood Nitro transaction gas limit from ArbGasInfo. Submission stopped.');
+  }
+  check(isHexString(encoded, 32), 'RPC returned an invalid Nitro transaction gas limit. Submission stopped.');
+  const [maxTxGasLimit] = ARB_GAS_ABI.decodeFunctionResult('getMaxTxGasLimit', encoded);
+  check(maxTxGasLimit > 0n && maxTxGasLimit < (1n << 64n), 'RPC returned an invalid Nitro transaction gas limit. Submission stopped.');
   // Nitro accounts for L1 posting separately from L2 execution. Comparing the
   // entire buffered estimate against its transaction cap is conservative.
   check(gasLimit <= maxTxGasLimit,
     `Total gas limit ${gasLimit} exceeds Nitro maxTxGasLimit ${maxTxGasLimit}. This conservative check includes any L1 posting gas in the estimate. Limits and gas budget will not be increased automatically.`);
+}
+export async function gasQuote(provider, estimate, block, maxCost, maxFeeMultiplier = 2) {
+  check(Number.isSafeInteger(maxFeeMultiplier) && maxFeeMultiplier >= 1 && maxFeeMultiplier <= 20, 'maxFeeMultiplier must be between 1 and 20.');
+  const gasLimit = (estimate * 120n + 99n) / 100n;
+  const [, rawFee] = await Promise.all([
+    checkGasLimit(provider, gasLimit, block),
+    provider.send(block.baseFeePerGas != null ? 'eth_maxPriorityFeePerGas' : 'eth_gasPrice', []),
+  ]);
   let fees;
   if (block.baseFeePerGas != null) {
     const priority = parseUint(rawFee);
@@ -356,6 +372,12 @@ Default: simulation and gas estimate only. Mint payment is always zero.
 --wait-timeout SECONDS    Maximum wait, default 21600, range 1–86400.
 --poll-interval-ms N      Near-start block polling, default 250, range 100–10000.
 --keep-alive-interval-ms N Heartbeat/stage refresh, default 10000, range 1000–60000.
+--sequencer               Send directly to the official Robinhood sequencer.
+--sequencer-url URL       Override the send-only Nitro endpoint; enables sequencer mode.
+--wait-until-timestamp N   Wait until chain Unix time AND the public stage is open.
+--wait-until-block N       Wait until block height AND all configured time conditions.
+Time/block targets enable waiting for mint; deployment starts immediately.
+Sequencer mode uses --rpc/config rpcUrls for all reads, simulation and receipts.
 All RPC submissions use one identical signed transaction, nonce and hash.
 Quantity 1 calls SeaDrop directly, with the sending wallet as recipient.
 Deploy with quantity 1 does nothing. Larger quantities use the factory.
@@ -380,8 +402,10 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
     if (args.from) check(address(args.from, 'from') === wallet.address, '--from differs from the PRIVATE_KEY wallet.');
   }
   const options = resolveBatchOptions(args, config, wallet?.address);
+  const waitMode = options.command === 'mint' && (args.wait || options.targetTimestamp != null || options.targetBlock != null);
   const artifact = options.route === 'direct' ? null : await loadArtifact();
   const allProviders = [];
+  let sequencerSession;
   const started = performance.now();
   const timings = {};
   const measure = async (name, operation) => {
@@ -394,7 +418,7 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
     for (const provider of allProviders) provider.destroy();
   };
   const checkCancelled = () => check(!cancellation.signal.aborted, 'Cancelled. Check any printed transaction hash before restarting.');
-  const ownSignals = args.wait && !hooks.signal;
+  const ownSignals = (waitMode || options.sequencer) && !hooks.signal;
   if (ownSignals) {
     process.once('SIGINT', cancel);
     process.once('SIGTERM', cancel);
@@ -415,9 +439,15 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
     checkCancelled();
     let verified = candidates.filter(Boolean);
     check(verified.length > 0, 'No configured RPC endpoint passed the chain check.');
+    if (options.sequencer) {
+      sequencerSession = await measure('sequencerConnect', () => openSequencer(options, {
+        register: item => allProviders.push(item), onProgress: print, signal: cancellation.signal,
+      }));
+      checkCancelled();
+    }
     let provider = verified[0].provider;
     let prepared;
-    if (args.wait) {
+    if (waitMode) {
       const ready = await measure('prepareAndWait', () => waitForPublicStage({
         entries: verified, options, signal: cancellation.signal, onProgress: print,
         prepare: async entry => {
@@ -435,6 +465,9 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
       timings.stageReadyAfterStart = Math.round((performance.now() - started) * 100) / 100;
     }
     const providers = verified.map(item => item.provider);
+    const sendEntries = sequencerSession ? [{ provider: sequencerSession.provider, endpoint: 'sequencer' }] : verified;
+    const sendProviders = sendEntries.map(item => item.provider);
+    await sequencerSession?.ensureHealthy();
     const checked = await measure('finalPreflight', () => preflightBatch(provider, artifact, options, prepared, timings));
     checkCancelled();
     const [quote, walletState] = await Promise.all([
@@ -450,7 +483,9 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
       factory: options.factory, quantity: options.quantity, minQuantity: options.minQuantity,
       predictedCount: checked.predictedCount, blockNumber: parseUint(checked.block.number), valueWei: '0',
       gasEstimate: checked.estimate, gasLimit: quote.gasLimit, ...quote.fees,
-      maxFeeMultiplier: options.maxFeeMultiplier, waitMode: Boolean(args.wait),
+      maxFeeMultiplier: options.maxFeeMultiplier, waitMode: Boolean(waitMode),
+      submission: options.sequencer ? 'direct sequencer' : 'configured RPCs',
+      targetTimestamp: options.targetTimestamp, targetBlock: options.targetBlock,
       maximumExecutionGasCostEth: formatEther(quote.maxGasCost), simulation: 'passed', broadcastRequested: Boolean(args.send) });
     if (!args.send) { console.log('Dry run complete. Add --send when ready.'); return { status: 'dry-run', route: options.route }; }
     const [chainId, balance, nonceValue] = walletState;
@@ -472,17 +507,23 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
     timings.readyToBroadcast = timings.stageReadyAfterStart == null ? undefined
       : Math.round((broadcastStarted - started - timings.stageReadyAfterStart) * 100) / 100;
     checkCancelled();
-    const sent = await measure('broadcastAllSettled', () => broadcastIdentical(raw, providers, { concurrency: options.concurrency, attempts: options.attempts,
+    const sent = await measure('broadcastAllSettled', () => broadcastIdentical(raw, sendProviders, { concurrency: options.concurrency, attempts: options.attempts,
+      signal: cancellation.signal,
+      ...(sequencerSession ? { lookupProviders: providers } : {}),
       retryDelayMs: options.retryDelayMs, onAttempt: event => {
-        if (['accepted', 'known'].includes(event.status) && timings.firstRpcAcknowledgement == null) {
+        if ((event.status === 'accepted' || (event.status === 'known' && !sequencerSession)) && timings.firstRpcAcknowledgement == null) {
           timings.firstRpcAcknowledgement = Math.round((performance.now() - broadcastStarted) * 100) / 100;
         }
-        print({ ...event, endpoint: verified[event.endpoint].endpoint });
+        if (event.status === 'known' && sequencerSession && timings.firstReadRpcObservation == null) {
+          timings.firstReadRpcObservation = Math.round((performance.now() - broadcastStarted) * 100) / 100;
+        }
+        print({ ...event, endpoint: sendEntries[event.endpoint].endpoint,
+          ...(sequencerSession && event.status === 'known' ? { observationSource: 'read RPC; sequencer acknowledgement unavailable' } : {}) });
       } }));
     check(sent.hash === hash, 'Broadcast returned an unexpected hash. Inspect the printed local hash.');
-    print({ transactionHash: hash, acceptedBy: sent.acceptedBy.map(index => verified[index].endpoint),
-      knownBy: sent.knownBy.map(index => verified[index].endpoint) });
-    const receiptProvider = providers[sent.acceptedBy[0] ?? sent.knownBy[0] ?? 0];
+    print({ transactionHash: hash, acceptedBy: sent.acceptedBy.map(index => sendEntries[index].endpoint),
+      ...(sequencerSession ? { knownViaReadRpc: sent.knownBy.length > 0 } : { knownBy: sent.knownBy.map(index => sendEntries[index].endpoint) }) });
+    const receiptProvider = sequencerSession ? provider : providers[sent.acceptedBy[0] ?? sent.knownBy[0] ?? 0];
     let receipt;
     try { receipt = await measure('receiptAfterBroadcastSettled', () => waitReceipt(receiptProvider, hash, options.receiptTimeoutSeconds)); }
     catch { throw new MintError('Transaction was submitted, but its receipt is unavailable or timed out. Check the printed hash before taking further action.'); }
@@ -507,6 +548,7 @@ export async function main(argv = process.argv.slice(2), hooks = {}) {
   } finally {
     if (ownSignals) { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
     hooks.signal?.removeEventListener('abort', cancel);
+    sequencerSession?.close();
     for (const provider of allProviders) provider.destroy();
     timings.total = Math.round((performance.now() - started) * 100) / 100;
     print({ timingsMs: timings, timingNote: 'RPC acknowledgement and receipt polling are distinct from sequencer arrival and finality.' });

@@ -15,9 +15,9 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function endpoint(index, { timestamp = 90n, chainId = '0x1237', onBlock } = {}) {
+function endpoint(index, { timestamp = 90n, blockNumber = 256n, chainId = '0x1237', onBlock } = {}) {
   const provider = {
-    timestamp, chainId, calls: [], blockReads: 0,
+    timestamp, blockNumber, chainId, calls: [], blockReads: 0,
     async send(method, params) {
       this.calls.push({ method, params });
       if (method === 'eth_chainId') return this.chainId;
@@ -28,7 +28,7 @@ function endpoint(index, { timestamp = 90n, chainId = '0x1237', onBlock } = {}) 
         const result = await onBlock(this);
         if (result != null) return result;
       }
-      return { number: '0x100', timestamp: `0x${this.timestamp.toString(16)}` };
+      return { number: `0x${this.blockNumber.toString(16)}`, timestamp: `0x${this.timestamp.toString(16)}` };
     },
   };
   return { endpoint: index, provider };
@@ -87,6 +87,164 @@ test('exact start and exact end timestamps remain valid mint boundaries', async 
     const result = await promise;
     assert.equal(result.stage.timestamp, timestamp);
   }
+});
+
+test('target timestamp adds a lower bound to an already active SeaDrop stage', async () => {
+  const entry = endpoint(0, { timestamp: 110n, onBlock(provider) { provider.timestamp = 120n; } });
+  const events = [];
+  const { promise } = run([entry], { options: { ...WAIT_OPTIONS, targetTimestamp: 120n }, onProgress: event => events.push(event) });
+  const result = await promise;
+  assert.equal(result.stage.timestamp, 120n);
+  assert.ok(entry.provider.blockReads > 0);
+  assert.equal(events.find(event => event.warmStatus === 'waiting').targetTimestamp, '120');
+  assert.equal(events.find(event => event.warmStatus === 'stage ready').chainTimestamp, '120');
+});
+
+test('target timestamp before SeaDrop opening never bypasses the actual stage', async () => {
+  const entry = endpoint(0, { timestamp: 90n, onBlock(provider) { provider.timestamp = 100n; } });
+  const { promise } = run([entry], { options: { ...WAIT_OPTIONS, targetTimestamp: 80n } });
+  const result = await promise;
+  assert.equal(result.stage.timestamp, 100n);
+  assert.ok(entry.provider.blockReads > 0);
+});
+
+test('target block and timestamp must both be reached, with fresh block data at final stage validation', async () => {
+  let stageReads = 0;
+  const entry = endpoint(0, { timestamp: 110n, blockNumber: 256n, onBlock(provider) {
+    provider.timestamp = 120n;
+    provider.blockNumber++;
+  } });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, targetTimestamp: 120n, targetBlock: 258n },
+    async getStage(current) { stageReads++; return stage(current, { blockNumber: current.provider.blockNumber }); },
+  });
+  const result = await promise;
+  assert.equal(result.stage.timestamp, 120n);
+  assert.equal(result.stage.blockNumber, 258n);
+  assert.ok(entry.provider.blockReads >= 2);
+  assert.ok(stageReads >= 2);
+});
+
+test('a target block alone does not bypass SeaDrop opening and accepts its exact boundary', async () => {
+  const entry = endpoint(0, { timestamp: 99n, blockNumber: 258n, onBlock(provider) { provider.timestamp = 100n; } });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, targetBlock: 258n },
+    async getStage(current) { return stage(current, { blockNumber: current.provider.blockNumber }); },
+  });
+  const result = await promise;
+  assert.equal(result.stage.timestamp, 100n);
+  assert.equal(result.stage.blockNumber, 258n);
+});
+
+test('a postponed SeaDrop opening is revalidated after explicit targets have been reached', async () => {
+  let reads = 0;
+  const entry = endpoint(0, { timestamp: 110n, blockNumber: 258n, onBlock(provider) { provider.timestamp = 150n; } });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, targetTimestamp: 110n, targetBlock: 258n },
+    async getStage(current) {
+      reads++;
+      return stage(current, { blockNumber: current.provider.blockNumber, startTime: reads >= 2 ? 150n : 100n });
+    },
+  });
+  const result = await promise;
+  assert.ok(reads >= 3);
+  assert.equal(result.stage.timestamp, 150n);
+  assert.equal(result.stage.startTime, 150n);
+});
+
+test('an extended or rescheduled window is refreshed before rejecting a cached expiration', async () => {
+  let reads = 0;
+  const entry = endpoint(0, { timestamp: 115n, onBlock(provider) {
+    provider.timestamp = reads >= 2 ? 140n : 130n;
+  } });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, keepAliveIntervalMs: 1000, targetTimestamp: 130n },
+    async getStage(current) {
+      reads++;
+      return stage(current, reads >= 2 ? { startTime: 140n, endTime: 200n } : { startTime: 100n, endTime: 120n });
+    },
+  });
+  const result = await promise;
+  assert.ok(reads >= 3);
+  assert.equal(result.stage.timestamp, 140n);
+  assert.equal(result.stage.startTime, 140n);
+  assert.equal(result.stage.endTime, 200n);
+});
+
+test('an expired stage cannot release a later explicit target after current configuration is refreshed', async () => {
+  let reads = 0;
+  const entry = endpoint(0, { timestamp: 115n, onBlock(provider) { provider.timestamp = 130n; } });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, keepAliveIntervalMs: 1000, targetTimestamp: 130n },
+    async getStage(current) { reads++; return stage(current, { endTime: 120n }); },
+  });
+  await assert.rejects(promise, /stage has ended/);
+  assert.equal(reads, 2);
+});
+
+test('final stage validation cannot reuse a previously observed block number after the head regresses', async () => {
+  let reads = 0;
+  const entry = endpoint(0, { timestamp: 150n, blockNumber: 257n, onBlock(provider) { provider.blockNumber++; } });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, targetBlock: 258n },
+    async getStage(current) {
+      if (++reads === 2) current.provider.blockNumber = 257n;
+      return stage(current, { blockNumber: current.provider.blockNumber });
+    },
+  });
+  const result = await promise;
+  assert.ok(reads >= 3);
+  assert.ok(entry.provider.blockReads >= 2);
+  assert.equal(result.stage.blockNumber, 258n);
+});
+
+test('missing block numbers reject target-block waits, while untargeted older callbacks remain compatible', async () => {
+  const { promise } = run([endpoint(0, { timestamp: 150n })], { options: { ...WAIT_OPTIONS, targetBlock: 1n } });
+  await assert.rejects(promise, /block number.*targetBlock/);
+  const entry = endpoint(0, { timestamp: 110n, onBlock: () => ({ timestamp: '0x78' }) });
+  const { promise: polling } = run([entry], {
+    options: { ...WAIT_OPTIONS, targetBlock: 258n },
+    async getStage(current) { return stage(current, { blockNumber: current.provider.blockNumber }); },
+  });
+  await assert.rejects(polling, /block number.*targetBlock/);
+  const legacy = await run([endpoint(0, { timestamp: 150n })]).promise;
+  assert.equal(legacy.stage.timestamp, 150n);
+});
+
+test('explicit targets remain bounded by timeout and cancellation', async () => {
+  const entry = endpoint(0, { timestamp: 150n });
+  await assert.rejects(run([entry], {
+    options: { ...WAIT_OPTIONS, targetTimestamp: 160n, waitTimeoutSeconds: 0.04 },
+  }).promise, /timed out/);
+  const controller = new AbortController();
+  const read = deferred();
+  const blocked = endpoint(0, { timestamp: 150n, onBlock() { read.resolve(); } });
+  const { promise } = run([blocked], {
+    signal: controller.signal, options: { ...WAIT_OPTIONS, targetBlock: 258n },
+    async getStage(current) { return stage(current, { blockNumber: current.provider.blockNumber }); },
+  });
+  const rejection = assert.rejects(promise, /cancel/);
+  await read.promise;
+  controller.abort();
+  await rejection;
+});
+
+test('target types and signs are validated before preparation; zero and absent targets are valid', async () => {
+  for (const name of ['targetTimestamp', 'targetBlock']) {
+    for (const value of [-1n, 1, '100', true, {}, Number.NaN]) {
+      const { hooks, promise } = run([endpoint(0)], { options: { ...WAIT_OPTIONS, [name]: value } });
+      await assert.rejects(promise, /non-negative bigint/);
+      assert.equal(hooks.prepared.length, 0);
+    }
+  }
+  const entry = endpoint(0, { timestamp: 100n });
+  const { promise } = run([entry], {
+    options: { ...WAIT_OPTIONS, targetTimestamp: 0n, targetBlock: 0n },
+    async getStage(current) { return stage(current, { blockNumber: current.provider.blockNumber }); },
+  });
+  assert.equal((await promise).stage.timestamp, 100n);
+  const absent = await run([entry], { options: { ...WAIT_OPTIONS, targetTimestamp: null, targetBlock: null } }).promise;
+  assert.equal(absent.stage.timestamp, 100n);
 });
 
 test('wall clock being past the opening cannot release a chain whose blocks are still early', async () => {

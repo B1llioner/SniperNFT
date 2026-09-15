@@ -97,6 +97,28 @@ test('quantity one selects direct mint without a factory and binds the recipient
   assert.throws(() => options({ quantity: 2, minQuantity: 2, factory: null }), /factory/);
 });
 
+test('sequencer selection keeps read URLs separate and normalizes optional chain gates', () => {
+  assert.equal(options().sequencer, false);
+  const standard = options({}, parseBatchArgs(['mint', '--sequencer', '--wait-until-block', '456', '--wait-until-timestamp', '123']));
+  assert.equal(standard.sequencerUrl, 'https://sequencer.mainnet.chain.robinhood.com');
+  assert.deepEqual(standard.rpcUrls, BASE_CONFIG.rpcUrls);
+  assert.equal(standard.targetBlock, 456n);
+  assert.equal(standard.targetTimestamp, 123n);
+  const custom = options({ sequencerUrl: 'http://127.0.0.1:1234', waitUntilBlock: '1000', waitUntilTimestamp: null });
+  assert.equal(custom.sequencer, true);
+  assert.equal(custom.sequencerUrl, 'http://127.0.0.1:1234');
+  assert.equal(custom.targetBlock, 1000n);
+  assert.equal(custom.targetTimestamp, undefined);
+  assert.equal(options({ waitUntilBlock: 3 }, { 'wait-until-block': '0' }).targetBlock, 0n);
+  assert.equal(options({ sequencer: false }, { 'sequencer-url': 'http://127.0.0.1:1234' }).sequencer, true);
+  for (const config of [
+    { sequencer: 'true' }, { sequencerUrl: 123 }, { sequencerUrl: '' },
+    { sequencer: false, sequencerUrl: 'http://127.0.0.1:1234' },
+    { waitUntilBlock: -1 }, { waitUntilTimestamp: 1.2 }, { waitUntilBlock: Number.MAX_SAFE_INTEGER + 1 },
+    { waitUntilTimestamp: '2026-09-16T14:00:20Z' },
+  ]) assert.throws(() => options(config), undefined, JSON.stringify(config));
+});
+
 test('batch rejects invalid counts, gas amounts, endpoints and broadcast limits before execution', () => {
   for (const config of [
     { quantity: 0 }, { quantity: -1 }, { quantity: 1025 }, { quantity: 1.5 }, { quantity: '1e2' },

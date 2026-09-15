@@ -13,6 +13,8 @@
 
 Для обычного использования: `npm run launch -- --config batch.config.json --send` разворачивает или находит сохранённую фабрику, проверяет её и запускает ожидание. `npm run start -- --config batch.config.json --send` работает с уже существующей фабрикой. Адрес и незавершённый деплой сохраняются автоматически; подробности восстановления и блокировки — в [RUNNING.md](RUNNING.md).
 
+Для прямой отправки деплоя и минта в sequencer: `npm run launch:sequencer -- --config batch.config.json --send`, с готовой фабрикой — `npm run start:sequencer -- --config batch.config.json --send`. Дополнительные границы `--wait-until-timestamp` / `--wait-until-block` задерживают только минт и проверяются вместе с актуальным окном SeaDrop. [Конфиг](batch.config.sequencer.example.json) и [подробности маршрута](RUNNING.md#запуск-через-sequencer).
+
 ## 1. Подготовка и количество
 
 Из каталога проекта, с Node.js 18.18 или новее:

@@ -10,6 +10,8 @@
 
 **Деплой и ожидание одной командой:** `npm run launch -- --config batch.config.json --send`. Для уже развёрнутой фабрики: `npm run start -- --config batch.config.json --send`. Фабрика сохраняется отдельно в `.state/`; повторный запуск сначала проверяет сохранённый адрес или незавершённый деплой. Для отправки нужен `PRIVATE_KEY` в окружении. Подробности — в [RUNNING.md](RUNNING.md).
 
+**Прямая отправка в sequencer:** `npm run launch:sequencer -- --config batch.config.json --send` выполняет деплой → проверку → ожидание → минт. С готовой фабрикой: `npm run start:sequencer -- --config batch.config.json --send`. Можно задать `--wait-until-timestamp` и/или `--wait-until-block`; без них ожидание следует актуальному окну SeaDrop. [Готовый конфиг](batch.config.sequencer.example.json), [маршрут и условия ожидания](RUNNING.md#запуск-через-sequencer).
+
 `quantity` задаёт максимум: по умолчанию минтится указанное число либо меньший доступный остаток. Например, запрос 10 при остатке 3 минтит 3. `minQuantity` по умолчанию равен 1; для строго заданного количества задайте его равным `quantity`.
 
 Для всего доступного остатка есть [batch.config.max.example.json](batch.config.max.example.json): `quantity: 1024`, `minQuantity: 1`. Фабрика читает остаток внутри транзакции до создания helper; при 910/1024 выбирает 114, а если конкурент оставит 6 — минтит 6. [Режим гонки и ограничения газа](BATCH.md#забрать-максимум-в-гонке).

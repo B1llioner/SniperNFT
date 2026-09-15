@@ -81,6 +81,17 @@ function fixture() {
   } };
 }
 
+test('final preflight refuses a head below the configured timestamp or block even after preparation', async () => {
+  for (const target of [{ targetTimestamp: 101n }, { targetBlock: 10n ** 20n }]) {
+    const rpc = fixture();
+    const selected = { ...options(1), ...target };
+    const prepared = await prepareBatch(rpc, null, selected);
+    const before = rpc.calls.length;
+    await assert.rejects(preflightBatch(rpc, null, selected, prepared), /Latest preflight block is below the requested wait/);
+    assert.ok(rpc.calls.slice(before).every(call => !['eth_estimateGas', 'eth_call', 'eth_sendRawTransaction'].includes(call.method)));
+  }
+});
+
 test('warm preparation validates contract and owner without attempting the full mint or estimating gas', async () => {
   for (const quantity of [1, 3]) {
     const rpc = fixture();

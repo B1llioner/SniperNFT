@@ -4,9 +4,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Interface, Transaction, Wallet, ZeroAddress, getAddress, isHexString, keccak256 } from 'ethers';
 import { CONFIG, MintError, createProvider, parseUint } from './mint.mjs';
 import { main as runBatch, parseBatchArgs, readBatchConfig, resolveBatchOptions, loadArtifact,
-  prepareBatch, preflightBatch, readPublicStage, waitReceipt, safeBatchError } from './batch.mjs';
+  prepareBatch, preflightBatch, readPublicStage, waitReceipt, safeBatchError, checkGasLimit } from './batch.mjs';
 import { broadcastIdentical } from './lib/broadcast.mjs';
 import { openFactoryState } from './lib/factory-state.mjs';
+import { openSequencer } from './lib/sequencer.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const check = (ok, message) => { if (!ok) throw new MintError(message); };
@@ -23,6 +24,12 @@ Without --send, only read-only checks/simulation run. A missing factory can be
 simulated by setup/deploy, but waiting for a mint requires an actual factory.
 All usual batch options apply. Additional option:
 --state-file FILE  Override .state/factory-4663-WALLET.json in the project.
+--sequencer        Deploy and mint through the official send-only sequencer.
+--sequencer-url URL  Override the Nitro send endpoint; also enables sequencer mode.
+--wait-until-timestamp N  Wait for chain Unix time and the actual public stage.
+--wait-until-block N      Also wait until this block height is observed.
+Deploy starts immediately; time/block conditions apply to the mint.
+rpcUrls/--rpc remain read RPCs for chain checks, simulation, nonce and receipts.
 One state file must be shared by all runs for a wallet. Never delete a pending
 state to retry: setup --send recovers the same deployment transaction.
 PRIVATE_KEY is read only with --send. State never contains the private key.`;
@@ -87,6 +94,7 @@ export async function main(argv = process.argv.slice(2)) {
   process.once('SIGINT', cancel);
   process.once('SIGTERM', cancel);
   let store;
+  let recoverySequencer;
   try {
     store = await openFactoryState(stateFile, identity);
     live();
@@ -153,12 +161,24 @@ export async function main(argv = process.argv.slice(2)) {
             check(cost <= options.maxGasCost, 'Saved deployment exceeds the current gas budget. It will not be replaced automatically.');
             const simulation = await preflightBatch(provider, artifact, options);
             check(simulation.estimate <= transaction.gasLimit, 'Saved deployment gas limit is below the current estimate. No replacement will be signed.');
-            check(parseUint(await provider.send('eth_getBalance', [options.from, 'pending'])) >= cost, 'Wallet balance cannot cover the saved deployment gas limit.');
+            const [, balance] = await Promise.all([
+              checkGasLimit(provider, transaction.gasLimit, simulation.block),
+              provider.send('eth_getBalance', [options.from, 'pending']),
+            ]);
+            check(parseUint(balance) >= cost, 'Wallet balance cannot cover the saved deployment gas limit.');
             live();
             print({ factoryStatus: 'resending saved deployment', transactionHash: hash, factory });
-            await broadcastIdentical(saved.deployment.rawTransaction, verified.map(entry => entry.provider), {
+            if (options.sequencer) recoverySequencer = await openSequencer(options, {
+              register: item => providers.push(item), onProgress: print, signal: cancellation.signal,
+            });
+            const sendEntries = recoverySequencer ? [{ provider: recoverySequencer.provider, endpoint: 'sequencer' }] : verified;
+            live();
+            await broadcastIdentical(saved.deployment.rawTransaction, sendEntries.map(entry => entry.provider), {
+              signal: cancellation.signal,
+              ...(recoverySequencer ? { lookupProviders: verified.map(entry => entry.provider) } : {}),
               concurrency: options.concurrency, attempts: options.attempts, retryDelayMs: options.retryDelayMs,
-              onAttempt: event => print({ ...event, endpoint: verified[event.endpoint].endpoint }),
+              onAttempt: event => print({ ...event, endpoint: sendEntries[event.endpoint].endpoint,
+                ...(recoverySequencer && event.status === 'known' ? { observationSource: 'read RPC; sequencer acknowledgement unavailable' } : {}) }),
             });
             live();
           }
@@ -177,6 +197,7 @@ export async function main(argv = process.argv.slice(2)) {
         check(stage.mintPrice === 0n && stage.maxTotalMintableByWallet > 0n && stage.endTime >= stage.startTime && stage.endTime > 0n,
           'No configured free public stage is available for this launch.');
         check(stage.timestamp <= stage.endTime, 'Public stage has ended. Factory deployment was not started.');
+        check(options.targetTimestamp == null || options.targetTimestamp <= stage.endTime, 'Requested wait timestamp is after the public stage ends. Factory deployment was not started.');
       }
       live();
       const result = await runBatch(childArgs('deploy', args), {
@@ -207,11 +228,13 @@ export async function main(argv = process.argv.slice(2)) {
     }
     // The state lock remains held throughout the wait and mint, preventing a
     // second launcher with the same state from signing concurrently.
+    recoverySequencer?.close();
     for (const item of providers) item.destroy();
     return await runBatch(childArgs('mint', args, factory, true), { config, signal: cancellation.signal });
   } finally {
     process.removeListener('SIGINT', cancel);
     process.removeListener('SIGTERM', cancel);
+    recoverySequencer?.close();
     for (const provider of providers) provider.destroy();
     await store?.close();
   }
