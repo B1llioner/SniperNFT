@@ -4,6 +4,7 @@ node_modules/
 !.env.example
 mint-payload.json
 batch.config.json
+sequencer-benchmark.config.json
 .state/
 *.log
 .DS_Store

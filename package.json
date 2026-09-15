@@ -14,6 +14,8 @@
     "launch:sequencer": "node batch.mjs setup --sequencer",
     "start:sequencer": "node batch.mjs start --sequencer",
     "benchmark": "node benchmark.mjs",
+    "benchmark:sequencer": "node sequencer-benchmark.mjs",
+    "compile:benchmark": "node scripts/compile-benchmark.mjs",
     "inspect": "node mint.mjs --inspect --payload research/reference-transaction.json",
     "test": "node --test test/*.test.mjs",
     "compile:batch": "node scripts/compile-batch.mjs",

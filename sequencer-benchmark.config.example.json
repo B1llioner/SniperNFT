@@ -1,0 +1,12 @@
+{
+  "rpcUrl": "https://robinhood-rpc.publicnode.com",
+  "sequencerUrl": "https://sequencer.mainnet.chain.robinhood.com",
+  "cycles": 1,
+  "quantity": 1,
+  "pollIntervalMs": 100,
+  "receiptTimeoutSeconds": 30,
+  "intervalMs": 250,
+  "maxFeeMultiplier": 2,
+  "maxGasCostEth": "0.003",
+  "maxTotalGasCostEth": "0.01"
+}
