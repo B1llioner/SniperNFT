@@ -106,6 +106,8 @@ unset PRIVATE_KEY
 
 ## Исследование и пределы проверки
 
+Промпт для реализации полного теста **пополнение 0.1 ETH → CREATE фабрики → локальное время → минт 10 NFT**: [FULL_BATCH_SIMULATION.md](prompts/FULL_BATCH_SIMULATION.md). В нём учтена [проверенная поддержка RPC](research/simulate-capabilities.json): `eth_simulateV1` доступен на обычных RPC, `eth_simulateV3` и симуляция через sequencer на проверенных endpoints недоступны. Это инструкция для следующего обновления; команда `simulate:full` пока не реализована.
+
 Подробный разбор: [research/ANALYSIS.md](research/ANALYSIS.md), [research/BYTECODE.md](research/BYTECODE.md). Исходные данные, ABI, текущий runtime и снимки RPC сохранены в `research/`.
 
 Проверки `npm test` охватывают кодирование, подпись, ограничения, dry-run, оба маршрута, допустимый меньший остаток, конфигурацию, runtime фабрики, отправку одинаковой транзакции нескольким локальным RPC и receipt. Для `--wait` проверяются ожидание по времени цепочки, смена RPC, отмена и тайм-ауты; отдельно проверяются HTTP keep-alive и бенчмарк. Дополнительно успешны read-only симуляции и локальный fork-тест десяти минтов; подробности в [BATCH.md](BATCH.md).

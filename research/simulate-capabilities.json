@@ -1,0 +1,1293 @@
+{
+  "kind": "read-only-rpc-simulation-capabilities",
+  "recordedAt": "2026-09-15T13:29:46.861395Z",
+  "allowedMethods": [
+    "eth_chainId",
+    "web3_clientVersion",
+    "rpc_modules",
+    "eth_simulateV3",
+    "eth_simulateV1",
+    "eth_getBlockByNumber"
+  ],
+  "mainnetBroadcast": false,
+  "privateKeysRead": false,
+  "probes": [
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_chainId",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:38.300585Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x1237"
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "web3_clientVersion",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:38.301361Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "nitro/v3.11.4-rc.3-7d5ac27/linux-arm64/go1.25.14"
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "rpc_modules",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:38.301462Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "arb": "1.0",
+          "arbdebug": "1.0",
+          "eth": "1.0",
+          "net": "1.0",
+          "rpc": "1.0",
+          "web3": "1.0"
+        }
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV3",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.001645Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_simulateV3 does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.059859Z",
+      "httpStatus": 400,
+      "response": {
+        "bodyPreview": "missing opts param\n"
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_chainId",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.083233Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x1237",
+        "id": 1
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "web3_clientVersion",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.346227Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "nitro/v3599aca-modified/linux-amd64/go1.25.14"
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "rpc_modules",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.558701Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "arb": "1.0",
+          "debug": "1.0",
+          "eth": "1.0",
+          "net": "1.0",
+          "rpc": "1.0",
+          "txpool": "1.0",
+          "web3": "1.0"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV3",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.777893Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_simulateV3 does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:42.953472Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "missing value for required argument 0"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_chainId",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:43.157816Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_chainId does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "web3_clientVersion",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:44.193094Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method web3_clientVersion does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "rpc_modules",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:44.996142Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "arb": "1.0",
+          "eth": "1.0",
+          "rpc": "1.0"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV3",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:45.808198Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_simulateV3 does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "params": [],
+      "requestedAt": "2026-09-15T13:29:46.042386Z",
+      "httpStatus": 400,
+      "response": {
+        "bodyPreview": "missing opts param\n"
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "invalid-opts-type",
+      "params": [
+        "not-an-object",
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:37.681743Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32000,
+          "message": "json: cannot unmarshal string into Go value of type rpc.simOpts"
+        }
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "empty-block-sequence",
+      "params": [
+        {
+          "blockStateCalls": []
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:37.682234Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "empty input"
+        }
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "one-zero-value-call",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "calls": [
+                {
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "gas": "0x5208",
+                  "value": "0x0",
+                  "data": "0x"
+                }
+              ]
+            }
+          ],
+          "validation": false
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:37.682373Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": [
+          {
+            "baseFeePerGas": "0x0",
+            "blobGasUsed": "0x0",
+            "calls": [
+              {
+                "returnData": "0x",
+                "logs": [],
+                "gasUsed": "0x5208",
+                "status": "0x1"
+              }
+            ],
+            "difficulty": "0x1",
+            "excessBlobGas": "0x0",
+            "extraData": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "gasLimit": "0x4000000000000",
+            "gasUsed": "0x5208",
+            "hash": "0xf92dadb3cfbb4bd36f142fb00cb78422457f59c41a8970e561a0a8f1388b9451",
+            "l1BlockNumber": "0x18c78c4",
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "miner": "0xa4b000000000000000000073657175656e636572",
+            "mixHash": "0x000000000000097100000000018c78c4000000000000003d0000000000000000",
+            "nonce": "0x0000000000000000",
+            "number": "0x3cbe762",
+            "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "parentHash": "0xbc2fb95180322bf5c9b54bc156f8514d5fd0c4953562355c6ec60503b3b0a402",
+            "receiptsRoot": "0xf78dfb743fbd92ade140711c8bbc542b5e307f0ab7984eff35d751969fe57efa",
+            "sendCount": "0x971",
+            "sendRoot": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+            "size": "0x272",
+            "stateRoot": "0x0863ee2515abdfe90a51d6f01ce563bba1bb3cb6383d4ce143600567c65ab0a7",
+            "timestamp": "0x6aa94888",
+            "transactions": [
+              "0x476159b4b29a8dbc71814ebcb30ff217d098fe571b68785dd28e2f93826d98d6"
+            ],
+            "transactionsRoot": "0x3cc2bc56fdb3c120aeba91ae2e53d8240665f7b82c768b016f4bc5ac06d58eaf",
+            "uncles": []
+          }
+        ]
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "label": "invalid-opts-type",
+      "params": [
+        "not-an-object",
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:42.437226Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "invalid argument 0: json: cannot unmarshal string into Go value of type ethapi.simOpts"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "label": "empty-block-sequence",
+      "params": [
+        {
+          "blockStateCalls": []
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:42.648478Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "empty input"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "label": "one-zero-value-call",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "calls": [
+                {
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "gas": "0x5208",
+                  "value": "0x0",
+                  "data": "0x"
+                }
+              ]
+            }
+          ],
+          "validation": false
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:42.709013Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": [
+          {
+            "baseFeePerGas": "0x0",
+            "blobGasUsed": "0x0",
+            "calls": [
+              {
+                "returnData": "0x",
+                "logs": [],
+                "gasUsed": "0x5208",
+                "status": "0x1"
+              }
+            ],
+            "difficulty": "0x1",
+            "excessBlobGas": "0x0",
+            "extraData": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "gasLimit": "0x4000000000000",
+            "gasUsed": "0x5208",
+            "hash": "0x9bd6b566c282e86ab99332e1c290c8e1b66f8c0ebc526b9430809afeeac68976",
+            "l1BlockNumber": "0x18c78c4",
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "miner": "0xa4b000000000000000000073657175656e636572",
+            "mixHash": "0x000000000000097100000000018c78c4000000000000003d0000000000000000",
+            "nonce": "0x0000000000000000",
+            "number": "0x3cbe79b",
+            "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "parentHash": "0xd157594cc3fe870963cfc24cc427b3dffff7a68f01ef162a0fb55ffbff7219bb",
+            "receiptsRoot": "0xf78dfb743fbd92ade140711c8bbc542b5e307f0ab7984eff35d751969fe57efa",
+            "sendCount": "0x971",
+            "sendRoot": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+            "size": "0x272",
+            "stateRoot": "0x70d4462ce2e257a366a889b52d331fb224316c76f858f9c7aab5cfe01baddb83",
+            "timestamp": "0x6aa9488e",
+            "transactions": [
+              "0x476159b4b29a8dbc71814ebcb30ff217d098fe571b68785dd28e2f93826d98d6"
+            ],
+            "transactionsRoot": "0x3cc2bc56fdb3c120aeba91ae2e53d8240665f7b82c768b016f4bc5ac06d58eaf",
+            "uncles": []
+          }
+        ]
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "invalid-opts-type",
+      "params": [
+        "not-an-object",
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:42.832443Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_simulateV1 does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "empty-block-sequence",
+      "params": [
+        {
+          "blockStateCalls": []
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:42.919207Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_simulateV1 does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "sequencer",
+      "url": "https://sequencer.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "one-zero-value-call",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "calls": [
+                {
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "gas": "0x5208",
+                  "value": "0x0",
+                  "data": "0x"
+                }
+              ]
+            }
+          ],
+          "validation": false
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:30:43.013933Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "the method eth_simulateV1 does not exist/is not available"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_getBlockByNumber",
+      "label": "fee-reference-head",
+      "params": [
+        "latest",
+        false
+      ],
+      "requestedAt": "2026-09-15T13:32:58.867278Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "number": "0x3cbec95",
+          "hash": "0x5d28fb992423c3188ed88a823c46a6f3d8150e9b3d59cbee696883211342b979",
+          "timestamp": "0x6aa9490a",
+          "baseFeePerGas": "0x3e35c80",
+          "gasLimit": "0x4000000000000"
+        },
+        "id": 1
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "validation-true-dependent-funding-and-spend",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x2c68af0bb140000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x8888888888888888888888888888888888888888": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x9999999999999999999999999999999999999999": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "value": "0x16345785d8a0000"
+                },
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x8888888888888888888888888888888888888888",
+                  "to": "0x9999999999999999999999999999999999999999",
+                  "value": "0x1"
+                }
+              ]
+            }
+          ],
+          "validation": true,
+          "traceTransfers": true,
+          "returnFullTransactions": true
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:32:59.068697Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": [
+          {
+            "baseFeePerGas": "0x3698807",
+            "blobGasUsed": "0x0",
+            "calls": [
+              {
+                "returnData": "0x",
+                "logs": [
+                  {
+                    "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "topics": [
+                      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                      "0x0000000000000000000000007777777777777777777777777777777777777777",
+                      "0x0000000000000000000000008888888888888888888888888888888888888888"
+                    ],
+                    "data": "0x000000000000000000000000000000000000000000000000016345785d8a0000",
+                    "blockNumber": "0x3cbec97",
+                    "transactionHash": "0xc09c75762c33d74cf8b724f5d1d22862c1686f3e33634a3fc95924ff94f3e649",
+                    "transactionIndex": "0x0",
+                    "blockHash": "0x177b3ffac4c42e6fdfa8798094d15839bac42d86b6e148ecdcf3ddaa6fa65a4f",
+                    "blockTimestamp": "0x6aa94916",
+                    "logIndex": "0x0",
+                    "removed": false
+                  }
+                ],
+                "gasUsed": "0x5208",
+                "status": "0x1"
+              },
+              {
+                "returnData": "0x",
+                "logs": [
+                  {
+                    "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "topics": [
+                      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                      "0x0000000000000000000000008888888888888888888888888888888888888888",
+                      "0x0000000000000000000000009999999999999999999999999999999999999999"
+                    ],
+                    "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "blockNumber": "0x3cbec97",
+                    "transactionHash": "0x651e78724b946c168952f65f3c36ce4b16973e85263e4dd76b6a0ad06867ef38",
+                    "transactionIndex": "0x1",
+                    "blockHash": "0x177b3ffac4c42e6fdfa8798094d15839bac42d86b6e148ecdcf3ddaa6fa65a4f",
+                    "blockTimestamp": "0x6aa94916",
+                    "logIndex": "0x1",
+                    "removed": false
+                  }
+                ],
+                "gasUsed": "0x5208",
+                "status": "0x1"
+              }
+            ],
+            "difficulty": "0x1",
+            "excessBlobGas": "0x0",
+            "extraData": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "gasLimit": "0x4000000000000",
+            "gasUsed": "0xa410",
+            "hash": "0x177b3ffac4c42e6fdfa8798094d15839bac42d86b6e148ecdcf3ddaa6fa65a4f",
+            "l1BlockNumber": "0x18c78cf",
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "miner": "0xa4b000000000000000000073657175656e636572",
+            "mixHash": "0x000000000000097100000000018c78cf000000000000003d0000000000000000",
+            "nonce": "0x0000000000000000",
+            "number": "0x3cbec97",
+            "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "parentHash": "0x5891d06f91a733b259ed2c17296fefb2a91fad6875b9b158feca321f2b20b84e",
+            "receiptsRoot": "0x75308898d571eafb5cd8cde8278bf5b3d13c5f6ec074926de3bb895b519264e1",
+            "sendCount": "0x971",
+            "sendRoot": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+            "size": "0x2ae",
+            "stateRoot": "0xf9be5d4fb4b44fcaf5a674c7c5e342b0c48dfa90d938a38ea77ac380c444ae84",
+            "timestamp": "0x6aa94916",
+            "transactions": [
+              {
+                "blockHash": "0x177b3ffac4c42e6fdfa8798094d15839bac42d86b6e148ecdcf3ddaa6fa65a4f",
+                "blockNumber": "0x3cbec97",
+                "from": "0x7777777777777777777777777777777777777777",
+                "gas": "0x5208",
+                "gasPrice": "0x3698807",
+                "maxFeePerGas": "0x7c6b900",
+                "maxPriorityFeePerGas": "0x0",
+                "hash": "0xc09c75762c33d74cf8b724f5d1d22862c1686f3e33634a3fc95924ff94f3e649",
+                "input": "0x",
+                "nonce": "0x0",
+                "to": "0x8888888888888888888888888888888888888888",
+                "transactionIndex": "0x0",
+                "value": "0x16345785d8a0000",
+                "type": "0x2",
+                "accessList": [],
+                "chainId": "0x1237",
+                "v": "0x0",
+                "r": "0x0",
+                "s": "0x0",
+                "yParity": "0x0"
+              },
+              {
+                "blockHash": "0x177b3ffac4c42e6fdfa8798094d15839bac42d86b6e148ecdcf3ddaa6fa65a4f",
+                "blockNumber": "0x3cbec97",
+                "from": "0x8888888888888888888888888888888888888888",
+                "gas": "0x5208",
+                "gasPrice": "0x3698807",
+                "maxFeePerGas": "0x7c6b900",
+                "maxPriorityFeePerGas": "0x0",
+                "hash": "0x651e78724b946c168952f65f3c36ce4b16973e85263e4dd76b6a0ad06867ef38",
+                "input": "0x",
+                "nonce": "0x0",
+                "to": "0x9999999999999999999999999999999999999999",
+                "transactionIndex": "0x1",
+                "value": "0x1",
+                "type": "0x2",
+                "accessList": [],
+                "chainId": "0x1237",
+                "v": "0x0",
+                "r": "0x0",
+                "s": "0x0",
+                "yParity": "0x0"
+              }
+            ],
+            "transactionsRoot": "0xefd7310fb7596e10ba4273d716cc80866547b7d342faad2be4f7d0088940fb8a",
+            "uncles": []
+          }
+        ]
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "validation-true-negative-unfunded-payer",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x2c68af0bb140000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x8888888888888888888888888888888888888888": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x9999999999999999999999999999999999999999": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x8888888888888888888888888888888888888888",
+                  "to": "0x9999999999999999999999999999999999999999",
+                  "value": "0x1"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:32:59.068939Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -38014,
+          "message": "err: insufficient funds for gas * price + value: address 0x8888888888888888888888888888888888888888 have 0 want 2739744000001 (supplied gas 21000)"
+        }
+      }
+    },
+    {
+      "endpoint": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "method": "eth_simulateV1",
+      "label": "validation-true-negative-no-gas-reserve",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x2c68af0bb140000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x8888888888888888888888888888888888888888": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x9999999999999999999999999999999999999999": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "value": "0x16345785d8a0000"
+                },
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x8888888888888888888888888888888888888888",
+                  "to": "0x9999999999999999999999999999999999999999",
+                  "value": "0x16345785d8a0000"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:32:59.069097Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -38014,
+          "message": "err: insufficient funds for gas * price + value: address 0x8888888888888888888888888888888888888888 have 100000000000000000 want 100002739744000000 (supplied gas 21000)"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "label": "validation-true-dependent-funding-and-spend",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x2c68af0bb140000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x8888888888888888888888888888888888888888": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x9999999999999999999999999999999999999999": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "value": "0x16345785d8a0000"
+                },
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x8888888888888888888888888888888888888888",
+                  "to": "0x9999999999999999999999999999999999999999",
+                  "value": "0x1"
+                }
+              ]
+            }
+          ],
+          "validation": true,
+          "traceTransfers": true,
+          "returnFullTransactions": true
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:33:03.475724Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": [
+          {
+            "baseFeePerGas": "0x3792037",
+            "blobGasUsed": "0x0",
+            "calls": [
+              {
+                "returnData": "0x",
+                "logs": [
+                  {
+                    "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "topics": [
+                      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                      "0x0000000000000000000000007777777777777777777777777777777777777777",
+                      "0x0000000000000000000000008888888888888888888888888888888888888888"
+                    ],
+                    "data": "0x000000000000000000000000000000000000000000000000016345785d8a0000",
+                    "blockNumber": "0x3cbecc9",
+                    "transactionHash": "0xc09c75762c33d74cf8b724f5d1d22862c1686f3e33634a3fc95924ff94f3e649",
+                    "transactionIndex": "0x0",
+                    "blockHash": "0xdae52bd1c348f1f8c733a045e541a96238fb185390633f4cdfaa823ff858ad84",
+                    "blockTimestamp": "0x6aa9491b",
+                    "logIndex": "0x0",
+                    "removed": false
+                  }
+                ],
+                "gasUsed": "0x5208",
+                "status": "0x1"
+              },
+              {
+                "returnData": "0x",
+                "logs": [
+                  {
+                    "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "topics": [
+                      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                      "0x0000000000000000000000008888888888888888888888888888888888888888",
+                      "0x0000000000000000000000009999999999999999999999999999999999999999"
+                    ],
+                    "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "blockNumber": "0x3cbecc9",
+                    "transactionHash": "0x651e78724b946c168952f65f3c36ce4b16973e85263e4dd76b6a0ad06867ef38",
+                    "transactionIndex": "0x1",
+                    "blockHash": "0xdae52bd1c348f1f8c733a045e541a96238fb185390633f4cdfaa823ff858ad84",
+                    "blockTimestamp": "0x6aa9491b",
+                    "logIndex": "0x1",
+                    "removed": false
+                  }
+                ],
+                "gasUsed": "0x5208",
+                "status": "0x1"
+              }
+            ],
+            "difficulty": "0x1",
+            "excessBlobGas": "0x0",
+            "extraData": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "gasLimit": "0x4000000000000",
+            "gasUsed": "0xa410",
+            "hash": "0xdae52bd1c348f1f8c733a045e541a96238fb185390633f4cdfaa823ff858ad84",
+            "l1BlockNumber": "0x18c78cf",
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "miner": "0xa4b000000000000000000073657175656e636572",
+            "mixHash": "0x000000000000097100000000018c78cf000000000000003d0000000000000000",
+            "nonce": "0x0000000000000000",
+            "number": "0x3cbecc9",
+            "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "parentHash": "0x78a2de63a2cba8c2e7d2043f3a288f0917338f4b724f2eae96780df94b484092",
+            "receiptsRoot": "0x75308898d571eafb5cd8cde8278bf5b3d13c5f6ec074926de3bb895b519264e1",
+            "sendCount": "0x971",
+            "sendRoot": "0x115feada8dd7a90f894e127fe79435dc604694df14c450040f922500408e5e72",
+            "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+            "size": "0x2ae",
+            "stateRoot": "0xb802eb9da6147f62013e3ad43f70d10a531d830611bb7d54bc3fecb00adc36b6",
+            "timestamp": "0x6aa9491b",
+            "transactions": [
+              {
+                "blockHash": "0xdae52bd1c348f1f8c733a045e541a96238fb185390633f4cdfaa823ff858ad84",
+                "blockNumber": "0x3cbecc9",
+                "from": "0x7777777777777777777777777777777777777777",
+                "gas": "0x5208",
+                "gasPrice": "0x3792037",
+                "maxFeePerGas": "0x7c6b900",
+                "maxPriorityFeePerGas": "0x0",
+                "hash": "0xc09c75762c33d74cf8b724f5d1d22862c1686f3e33634a3fc95924ff94f3e649",
+                "input": "0x",
+                "nonce": "0x0",
+                "to": "0x8888888888888888888888888888888888888888",
+                "transactionIndex": "0x0",
+                "value": "0x16345785d8a0000",
+                "type": "0x2",
+                "accessList": [],
+                "chainId": "0x1237",
+                "v": "0x0",
+                "r": "0x0",
+                "s": "0x0",
+                "yParity": "0x0"
+              },
+              {
+                "blockHash": "0xdae52bd1c348f1f8c733a045e541a96238fb185390633f4cdfaa823ff858ad84",
+                "blockNumber": "0x3cbecc9",
+                "from": "0x8888888888888888888888888888888888888888",
+                "gas": "0x5208",
+                "gasPrice": "0x3792037",
+                "maxFeePerGas": "0x7c6b900",
+                "maxPriorityFeePerGas": "0x0",
+                "hash": "0x651e78724b946c168952f65f3c36ce4b16973e85263e4dd76b6a0ad06867ef38",
+                "input": "0x",
+                "nonce": "0x0",
+                "to": "0x9999999999999999999999999999999999999999",
+                "transactionIndex": "0x1",
+                "value": "0x1",
+                "type": "0x2",
+                "accessList": [],
+                "chainId": "0x1237",
+                "v": "0x0",
+                "r": "0x0",
+                "s": "0x0",
+                "yParity": "0x0"
+              }
+            ],
+            "transactionsRoot": "0xefd7310fb7596e10ba4273d716cc80866547b7d342faad2be4f7d0088940fb8a",
+            "uncles": []
+          }
+        ]
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "label": "validation-true-negative-unfunded-payer",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x2c68af0bb140000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x8888888888888888888888888888888888888888": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x9999999999999999999999999999999999999999": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x8888888888888888888888888888888888888888",
+                  "to": "0x9999999999999999999999999999999999999999",
+                  "value": "0x1"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:33:03.476381Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -38014,
+          "message": "err: insufficient funds for gas * price + value: address 0x8888888888888888888888888888888888888888 have 0 want 2739744000001 (supplied gas 21000)"
+        }
+      }
+    },
+    {
+      "endpoint": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "method": "eth_simulateV1",
+      "label": "validation-true-negative-no-gas-reserve",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x2c68af0bb140000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x8888888888888888888888888888888888888888": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                },
+                "0x9999999999999999999999999999999999999999": {
+                  "balance": "0x0",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x8888888888888888888888888888888888888888",
+                  "value": "0x16345785d8a0000"
+                },
+                {
+                  "gas": "0x5208",
+                  "maxFeePerGas": "0x7c6b900",
+                  "maxPriorityFeePerGas": "0x0",
+                  "nonce": "0x0",
+                  "data": "0x",
+                  "chainId": "0x1237",
+                  "from": "0x8888888888888888888888888888888888888888",
+                  "to": "0x9999999999999999999999999999999999999999",
+                  "value": "0x16345785d8a0000"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "latest"
+      ],
+      "requestedAt": "2026-09-15T13:33:03.637409Z",
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -38014,
+          "message": "err: insufficient funds for gas * price + value: address 0x8888888888888888888888888888888888888888 have 100000000000000000 want 100002739744000000 (supplied gas 21000)"
+        }
+      }
+    }
+  ],
+  "updatedAt": "2026-09-15T13:33:33.140071Z",
+  "chainId": 4663,
+  "transport": {
+    "userAgent": "Mozilla/5.0",
+    "timeoutSeconds": 12,
+    "concurrency": 3,
+    "networkOperations": "HTTPS JSON-RPC read/simulation methods only"
+  },
+  "sources": [
+    {
+      "url": "https://ethereum.github.io/execution-apis/api/methods/eth_simulateV1/",
+      "supports": "The Ethereum Execution APIs reference specifies eth_simulateV1 for sequences of calls sharing evolving simulated state. No blockchain transactions are created."
+    },
+    {
+      "url": "https://ethereum.github.io/execution-apis/docs/ethsimulatev1-notes/",
+      "supports": "Simulation supports state/block overrides and sequential nonce defaults. With validation false the default baseFeePerGas is zero; validation true checks transaction inclusion constraints. Method versioning is explicit."
+    },
+    {
+      "url": "https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-eth",
+      "supports": "Geth documents eth_simulateV1 payload, blockStateCalls, validation and block/state overrides, with a whole-simulation gas cap."
+    },
+    {
+      "url": "https://docs.robinhood.com/chain/connecting/",
+      "supports": "Official Robinhood mainnet chain ID4663, public RPC endpoint and a separate sequencer endpoint."
+    }
+  ],
+  "summary": [
+    {
+      "endpoint": "official",
+      "chainIdRead": "0x1237",
+      "eth_simulateV3": "JSON-RPC -32601, unavailable",
+      "eth_simulateV1": "A valid zero-value single-call simulation succeeded with status0x1 and gasUsed0x5208.",
+      "emptyArgumentCaveat": "With params[] HTTP400 missing opts param was returned. With invalid object type JSON-RPC -32000; empty blockStateCalls JSON-RPC -32602 empty input."
+    },
+    {
+      "endpoint": "publicnode",
+      "chainIdRead": "0x1237",
+      "eth_simulateV3": "JSON-RPC -32601, unavailable",
+      "eth_simulateV1": "A valid zero-value single-call simulation succeeded with status0x1 and gasUsed0x5208.",
+      "emptyArgumentCaveat": "Missing or malformed arguments returned JSON-RPC -32602."
+    },
+    {
+      "endpoint": "sequencer",
+      "chainIdRead": "JSON-RPC -32601, eth_chainId unavailable; network identity is supplied by the official endpoint documentation only.",
+      "eth_simulateV3": "JSON-RPC -32601, unavailable",
+      "eth_simulateV1": "A valid zero-value single-call payload returned JSON-RPC -32601, unavailable.",
+      "emptyArgumentCaveat": "The params[] HTTP400 missing opts param response is not evidence that this method is implemented. The correctly shaped payload reaches a method-not-found response."
+    }
+  ],
+  "limitations": [
+    "This is a capability snapshot, not a full funding/deployment/mint simulation and not a benchmark of sequencer or submission latency.",
+    "The successful smoke calls used validation:false and returned simulated baseFeePerGas0. They must not be treated as proof that a wallet can afford real fees or that a full Nitro-dependent CREATE/mint sequence will succeed.",
+    "The reported blocks and transaction hashes in eth_simulateV1 responses are synthetic. They were not sent to the chain.",
+    "Exact eth_simulateV3 searches did not identify an official Ethereum/Geth/Robinhood method specification. This is not proof that no provider-specific extension with that name exists. Any such extension requires its actual provider documentation and a successful capability probe.",
+    "rpc_modules exposes namespaces, not a guarantee that every method in each namespace is enabled.",
+    "No real private key, local wallet configuration, persistent on-chain state, or transaction-send methods were accessed."
+  ],
+  "fundingSmoke": {
+    "fundingWei": "100000000000000000",
+    "funderInitialOverrideWei": "200000000000000000",
+    "payerInitialOverrideWei": "0",
+    "referenceBlock": {
+      "number": "0x3cbec95",
+      "hash": "0x5d28fb992423c3188ed88a823c46a6f3d8150e9b3d59cbee696883211342b979",
+      "timestamp": "0x6aa9490a",
+      "baseFeePerGas": "0x3e35c80",
+      "gasLimit": "0x4000000000000"
+    },
+    "maxFeePerGasWei": "130464000",
+    "maxPriorityFeePerGasWei": "0",
+    "gasLimitPerCall": "21000",
+    "validation": true,
+    "expectedSuccess": "Funding0.1ETH then payer spends1wei.",
+    "negativeControls": [
+      "Payer spends without funding.",
+      "Funded payer spends entire0.1ETH leaving no gas reserve."
+    ],
+    "scope": "Read-only two-transfer smoke. Synthetic accounts/code/balance/nonce overrides are used solely for capability testing. No NFT, SeaDrop or factory state/code is touched; no CREATE or mintBatch has been simulated.",
+    "verifiedResults": {
+      "official": {
+        "dependentTransfersSucceeded": true,
+        "gasUsedPerCall": "21000",
+        "fundingLogValueWei": "100000000000000000",
+        "secondTransferLogValueWei": "1",
+        "unfundedPayerErrorCode": -38014,
+        "noGasReserveErrorCode": -38014,
+        "simulatedBaseFeePerGasWei": "57247751"
+      },
+      "publicnode": {
+        "dependentTransfersSucceeded": true,
+        "gasUsedPerCall": "21000",
+        "fundingLogValueWei": "100000000000000000",
+        "secondTransferLogValueWei": "1",
+        "unfundedPayerErrorCode": -38014,
+        "noGasReserveErrorCode": -38014,
+        "simulatedBaseFeePerGasWei": "58269751"
+      }
+    },
+    "conclusion": "Both endpoints carried the first transfer balance into the second call and enforced gas-plus-value affordability with validation:true. Omitting funding or spending the entire funded balance while leaving no gas reserve failed with -38014.",
+    "pricingLimit": "The virtual next-block base fees are produced by the simulation implementation. These smoke results do not establish Robinhood sequencer ordering, future Nitro gas pricing, L1 posting fee accuracy, or exact post-call wallet fee debits."
+  }
+}
