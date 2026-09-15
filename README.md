@@ -10,6 +10,8 @@
 
 **Бенчмарк реальной отправки:** `npm run benchmark:sequencer -- --send` отправляет две транзакции через sequencer: создание отдельного тестового NFT-контракта и mint. `--cycles 100` повторяет эту пару для статистики; в конце печатаются p50/p95/p99 отдельно для деплоя и минта. [Команды, ключ, бюджет и смысл метрик](SEQUENCER_BENCHMARK.md).
 
+**Сравнение трёх AWS-зон:** `npm run benchmark:az -- probe ...` измеряет TCP/TLS и health по постоянному HTTPS-соединению, а `compare` сравнивает p50/p95/p99 в общем временном окне. [Сетевой CLI](AZ_BENCHMARK.md), [шаблон трёх EC2 в Ohio](AWS_AZ_BENCHMARK.md). Ключи и транзакции для этого этапа не нужны.
+
 **Деплой и ожидание одной командой:** `npm run launch -- --config batch.config.json --send`. Для уже развёрнутой фабрики: `npm run start -- --config batch.config.json --send`. Фабрика сохраняется отдельно в `.state/`; повторный запуск сначала проверяет сохранённый адрес или незавершённый деплой. Для отправки нужен `PRIVATE_KEY` в окружении. Подробности — в [RUNNING.md](RUNNING.md).
 
 **Прямая отправка в sequencer:** `npm run launch:sequencer -- --config batch.config.json --send` выполняет деплой → проверку → ожидание → минт. С готовой фабрикой: `npm run start:sequencer -- --config batch.config.json --send`. Можно задать `--wait-until-timestamp` и/или `--wait-until-block`; без них ожидание следует актуальному окну SeaDrop. [Готовый конфиг](batch.config.sequencer.example.json), [маршрут и условия ожидания](RUNNING.md#запуск-через-sequencer).

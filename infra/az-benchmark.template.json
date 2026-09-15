@@ -1,0 +1,572 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Three identical SSM-managed EC2 probes in Ohio AZ IDs use2-az1, use2-az2 and use2-az3. Deploy only in us-east-2. No wallet or transaction is provisioned.",
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": {
+            "default": "Identical hosts (us-east-2 only)"
+          },
+          "Parameters": [
+            "InstanceType",
+            "AmiParameter",
+            "BundleBucket",
+            "BundleKey",
+            "BundleSha256"
+          ]
+        }
+      ]
+    }
+  },
+  "Parameters": {
+    "InstanceType": {
+      "Type": "String",
+      "Default": "c6i.large",
+      "AllowedValues": [
+        "c6i.large",
+        "c7i.large",
+        "m6i.large",
+        "m7i.large"
+      ],
+      "Description": "Use one non-burstable x86_64 type for all three hosts. Check its availability in every target AZ before deployment."
+    },
+    "BundleBucket": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+      "Description": "Optional private S3 bucket in this AWS account and region. Set together with BundleKey and BundleSha256."
+    },
+    "BundleKey": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^[A-Za-z0-9][A-Za-z0-9/_.-]{0,1023}$",
+      "Description": "Exact S3 object key produced by az-benchmark bundle. The instance role can only read this object."
+    },
+    "BundleSha256": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^[a-f0-9]{64}$",
+      "Description": "SHA-256 printed by the bundle command. Bootstrap fails if the downloaded archive differs."
+    },
+    "AmiParameter": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+      "Description": "Amazon Linux 2023 x86_64 AMI SSM parameter, resolved once for this stack. All hosts use the same AMI."
+    }
+  },
+  "Rules": {
+    "OhioRegionOnly": {
+      "Assertions": [{
+        "Assert": { "Fn::Equals": [{ "Ref": "AWS::Region" }, "us-east-2"] },
+        "AssertDescription": "Deploy this benchmark stack in us-east-2 (Ohio)."
+      }]
+    },
+    "CompleteBundleSettings": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Or": [
+              { "Fn::And": [
+                { "Fn::Equals": [{ "Ref": "BundleBucket" }, ""] },
+                { "Fn::Equals": [{ "Ref": "BundleKey" }, ""] },
+                { "Fn::Equals": [{ "Ref": "BundleSha256" }, ""] }
+              ] },
+              { "Fn::And": [
+                { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "BundleBucket" }, ""] }] },
+                { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "BundleKey" }, ""] }] },
+                { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "BundleSha256" }, ""] }] }
+              ] }
+            ]
+          },
+          "AssertDescription": "Set BundleBucket, BundleKey and BundleSha256 together, or leave all three empty."
+        }
+      ]
+    }
+  },
+  "Conditions": {
+    "HasBundle": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "BundleBucket" }, ""] }] }
+  },
+  "Resources": {
+    "Vpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.73.0.0/16",
+        "EnableDnsSupport": true,
+        "EnableDnsHostnames": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-vpc"
+            }
+          }
+        ]
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway"
+    },
+    "GatewayAttachment": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "PublicRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "InternetRoute": {
+      "Type": "AWS::EC2::Route",
+      "DependsOn": "GatewayAttachment",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "ProbeSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Outbound benchmark and SSM connections; no inbound access",
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "SecurityGroupIngress": [],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "ProbeRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Policies": {
+          "Fn::If": [
+            "HasBundle",
+            [{
+              "PolicyName": "ReadBenchmarkBundle",
+              "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject"],
+                  "Resource": { "Fn::Sub": "arn:${AWS::Partition}:s3:::${BundleBucket}/${BundleKey}" }
+                }]
+              }
+            }],
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          }
+        ]
+      }
+    },
+    "ProbeInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "ProbeRole"
+          }
+        ]
+      }
+    },
+    "ProbeLaunchTemplate": {
+      "Type": "AWS::EC2::LaunchTemplate",
+      "Properties": {
+        "LaunchTemplateData": {
+          "ImageId": {
+            "Ref": "AmiParameter"
+          },
+          "InstanceType": {
+            "Ref": "InstanceType"
+          },
+          "IamInstanceProfile": {
+            "Arn": {
+              "Fn::GetAtt": [
+                "ProbeInstanceProfile",
+                "Arn"
+              ]
+            }
+          },
+          "MetadataOptions": {
+            "HttpEndpoint": "enabled",
+            "HttpTokens": "required",
+            "HttpPutResponseHopLimit": 1,
+            "InstanceMetadataTags": "disabled"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeSize": 12,
+                "VolumeType": "gp3",
+                "Encrypted": true,
+                "DeleteOnTermination": true
+              }
+            }
+          ],
+          "UserData": {
+            "Fn::Base64": {
+              "Fn::Sub": "#!/bin/bash\nset -euo pipefail\nexec > >(tee -a /var/log/az-benchmark-bootstrap.log) 2>&1\ndnf install -y nodejs22 nodejs22-npm git tar gzip amazon-ssm-agent chrony awscli-2\nalternatives --set node /usr/bin/node-22\nsystemctl enable --now amazon-ssm-agent\nsystemctl enable --now chronyd\ninstall -d -m 0755 /var/lib/az-benchmark\nif [ -n '${BundleBucket}' ]; then\n  aws s3 cp 's3://${BundleBucket}/${BundleKey}' /var/lib/az-benchmark/bundle.tgz --region '${AWS::Region}' --only-show-errors\n  printf '%s  %s\\n' '${BundleSha256}' /var/lib/az-benchmark/bundle.tgz | sha256sum --check --status\n  install -d -m 0755 /opt/az-benchmark\n  tar --extract --gzip --file /var/lib/az-benchmark/bundle.tgz --directory /opt/az-benchmark --no-same-owner --no-same-permissions\n  test -f /opt/az-benchmark/az-benchmark.mjs\n  chmod -R a+rX /opt/az-benchmark\nfi\nnode --version\nnpm --version\nnode -e 'if (process.versions.node.split(\".\")[0] !== \"22\") process.exit(1); console.log(JSON.stringify({node:process.version, arch:process.arch, readyAt:new Date().toISOString()}))' > /var/lib/az-benchmark/ready.json\nchmod 0644 /var/lib/az-benchmark/ready.json\n"
+            }
+          }
+        }
+      }
+    },
+    "SubnetA": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.73.0.0/24",
+        "AvailabilityZoneId": "use2-az1",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-use2-az1"
+            }
+          }
+        ]
+      }
+    },
+    "SubnetRouteA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "SubnetA"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "ProbeA": {
+      "Type": "AWS::EC2::Instance",
+      "DependsOn": [
+        "InternetRoute",
+        "SubnetRouteA"
+      ],
+      "Properties": {
+        "LaunchTemplate": {
+          "LaunchTemplateId": {
+            "Ref": "ProbeLaunchTemplate"
+          },
+          "Version": {
+            "Fn::GetAtt": [
+              "ProbeLaunchTemplate",
+              "LatestVersionNumber"
+            ]
+          }
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": true,
+            "DeleteOnTermination": true,
+            "GroupSet": [
+              {
+                "Ref": "ProbeSecurityGroup"
+              }
+            ],
+            "SubnetId": {
+              "Ref": "SubnetA"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-use2-az1"
+            }
+          },
+          {
+            "Key": "Benchmark",
+            "Value": "sequencer-az"
+          },
+          {
+            "Key": "ZoneId",
+            "Value": "use2-az1"
+          }
+        ]
+      }
+    },
+    "SubnetB": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.73.1.0/24",
+        "AvailabilityZoneId": "use2-az2",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-use2-az2"
+            }
+          }
+        ]
+      }
+    },
+    "SubnetRouteB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "SubnetB"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "ProbeB": {
+      "Type": "AWS::EC2::Instance",
+      "DependsOn": [
+        "InternetRoute",
+        "SubnetRouteB"
+      ],
+      "Properties": {
+        "LaunchTemplate": {
+          "LaunchTemplateId": {
+            "Ref": "ProbeLaunchTemplate"
+          },
+          "Version": {
+            "Fn::GetAtt": [
+              "ProbeLaunchTemplate",
+              "LatestVersionNumber"
+            ]
+          }
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": true,
+            "DeleteOnTermination": true,
+            "GroupSet": [
+              {
+                "Ref": "ProbeSecurityGroup"
+              }
+            ],
+            "SubnetId": {
+              "Ref": "SubnetB"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-use2-az2"
+            }
+          },
+          {
+            "Key": "Benchmark",
+            "Value": "sequencer-az"
+          },
+          {
+            "Key": "ZoneId",
+            "Value": "use2-az2"
+          }
+        ]
+      }
+    },
+    "SubnetC": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.73.2.0/24",
+        "AvailabilityZoneId": "use2-az3",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-use2-az3"
+            }
+          }
+        ]
+      }
+    },
+    "SubnetRouteC": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "SubnetC"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "ProbeC": {
+      "Type": "AWS::EC2::Instance",
+      "DependsOn": [
+        "InternetRoute",
+        "SubnetRouteC"
+      ],
+      "Properties": {
+        "LaunchTemplate": {
+          "LaunchTemplateId": {
+            "Ref": "ProbeLaunchTemplate"
+          },
+          "Version": {
+            "Fn::GetAtt": [
+              "ProbeLaunchTemplate",
+              "LatestVersionNumber"
+            ]
+          }
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": true,
+            "DeleteOnTermination": true,
+            "GroupSet": [
+              {
+                "Ref": "ProbeSecurityGroup"
+              }
+            ],
+            "SubnetId": {
+              "Ref": "SubnetC"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-use2-az3"
+            }
+          },
+          {
+            "Key": "Benchmark",
+            "Value": "sequencer-az"
+          },
+          {
+            "Key": "ZoneId",
+            "Value": "use2-az3"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "Region": {
+      "Value": {
+        "Ref": "AWS::Region"
+      }
+    },
+    "ImageId": {
+      "Value": {
+        "Ref": "AmiParameter"
+      }
+    },
+    "InstanceType": {
+      "Value": {
+        "Ref": "InstanceType"
+      }
+    },
+    "BootstrapCheck": {
+      "Value": "cat /var/lib/az-benchmark/ready.json; node --version; npm --version; chronyc tracking"
+    },
+    "BootstrapLog": {
+      "Value": "/var/log/az-benchmark-bootstrap.log"
+    },
+    "SequencerEndpoint": {
+      "Value": "https://sequencer.mainnet.chain.robinhood.com"
+    },
+    "ProbeAInstanceId": {
+      "Value": {
+        "Ref": "ProbeA"
+      }
+    },
+    "ProbeAZoneId": {
+      "Value": "use2-az1"
+    },
+    "ProbeAZoneName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ProbeA",
+          "AvailabilityZone"
+        ]
+      }
+    },
+    "ProbeBInstanceId": {
+      "Value": {
+        "Ref": "ProbeB"
+      }
+    },
+    "ProbeBZoneId": {
+      "Value": "use2-az2"
+    },
+    "ProbeBZoneName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ProbeB",
+          "AvailabilityZone"
+        ]
+      }
+    },
+    "ProbeCInstanceId": {
+      "Value": {
+        "Ref": "ProbeC"
+      }
+    },
+    "ProbeCZoneId": {
+      "Value": "use2-az3"
+    },
+    "ProbeCZoneName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ProbeC",
+          "AvailabilityZone"
+        ]
+      }
+    }
+  }
+}

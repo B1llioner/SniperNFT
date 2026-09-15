@@ -1,0 +1,10 @@
+{
+  "endpoint": "https://sequencer.mainnet.chain.robinhood.com",
+  "durationSeconds": 1800,
+  "intervalMs": 1000,
+  "coldIntervalMs": 30000,
+  "timeoutMs": 5000,
+  "family": 4,
+  "warmupSamples": 5,
+  "progressIntervalSeconds": 30
+}

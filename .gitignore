@@ -5,6 +5,7 @@ node_modules/
 mint-payload.json
 batch.config.json
 sequencer-benchmark.config.json
+az-benchmark.config.json
 .state/
 *.log
 .DS_Store
