@@ -19,6 +19,8 @@ const ARTIFACT = await loadArtifact();
 const FACTORY_ABI = new Interface(ARTIFACT.abi);
 const SEA_ABI = new Interface(JSON.parse(await readFile(new URL('../research/seadrop-abi.json', import.meta.url), 'utf8')));
 const TOKEN_ABI = new Interface(NFT_ABI);
+const ARB_GAS_INFO = '0x000000000000000000000000000000000000006c';
+const ARB_GAS_ABI = new Interface(['function getMaxTxGasLimit() view returns (uint256)']);
 const NFT_CODE = (await readFile(new URL('../research/nft-runtime.hex', import.meta.url), 'utf8')).trim();
 const block = timestamp => ({ number: '0x100', timestamp: toQuantity(timestamp), gasLimit: '0x1c9c380', baseFeePerGas: '0x64' });
 const options = (quantity = 3, extra = {}) => resolveBatchOptions({ command: 'mint', from: SENDER }, {
@@ -52,6 +54,10 @@ function fixture() {
     }
     if (method === 'eth_call') {
       const [tx] = params;
+      if (tx.to.toLowerCase() === ARB_GAS_INFO) {
+        assert.equal(tx.data, ARB_GAS_ABI.encodeFunctionData('getMaxTxGasLimit'));
+        return ARB_GAS_ABI.encodeFunctionResult('getMaxTxGasLimit', [32_000_000n]);
+      }
       if (tx.to.toLowerCase() === FACTORY.toLowerCase()) {
         const decoded = FACTORY_ABI.parseTransaction(tx);
         return FACTORY_ABI.encodeFunctionResult(decoded.name, [decoded.name === 'mintBatch' ? 2n : SENDER]);
@@ -149,6 +155,69 @@ test('fee multiplier changes the max fee cap and still respects the total gas bu
   assert.equal(larger.maxGasCost, 48_360n);
   await assert.rejects(gasQuote(fixture(), 100n, block(100n), 40_000n, 4), /Maximum gas cost/);
   for (const multiplier of [0, 21, 1.5, Number.NaN]) await assert.rejects(gasQuote(fixture(), 100n, block(100n), 100_000n, multiplier));
+});
+
+test('Nitro transaction cap rejects a large batch despite the oversized header limit, and allows exactly the cap', async () => {
+  const hugeHeader = { ...block(100n), gasLimit: toQuantity(1n << 50n) };
+  const exact = await gasQuote(fixture(), 26_666_666n, hugeHeader, 10n ** 18n);
+  assert.equal(exact.gasLimit, 32_000_000n);
+  await assert.rejects(gasQuote(fixture(), 26_666_667n, hugeHeader, 10n ** 18n), error => {
+    assert.match(error.message, /Total gas limit 32000001 exceeds Nitro maxTxGasLimit 32000000/);
+    assert.match(error.message, /conservative check includes any L1 posting gas/);
+    assert.match(error.message, /Limits and gas budget will not be increased/);
+    return true;
+  });
+  await assert.rejects(gasQuote(fixture(), 100n, { ...hugeHeader, gasLimit: '0x77' }, 10n ** 18n), /block gas limit/);
+});
+
+test('gas quote refuses missing, malformed, zero or oversized Nitro caps without exposing RPC errors', async () => {
+  const invalid = ['0x', '0x00', null, 32_000_000,
+    ARB_GAS_ABI.encodeFunctionResult('getMaxTxGasLimit', [0n]),
+    ARB_GAS_ABI.encodeFunctionResult('getMaxTxGasLimit', [1n << 64n]),
+    `${ARB_GAS_ABI.encodeFunctionResult('getMaxTxGasLimit', [32_000_000n])}00`];
+  for (const raw of invalid) {
+    const rpc = fixture();
+    const send = rpc.send.bind(rpc);
+    rpc.send = async (method, params) => method === 'eth_call' && params[0].to === ARB_GAS_INFO ? raw : send(method, params);
+    await assert.rejects(gasQuote(rpc, 100n, block(100n), 100_000n), /invalid Nitro transaction gas limit/);
+  }
+  const rpc = fixture();
+  const send = rpc.send.bind(rpc);
+  rpc.send = async (method, params) => {
+    if (method === 'eth_call') throw new Error('https://private.example/api-secret: raw upstream failure');
+    return send(method, params);
+  };
+  await assert.rejects(gasQuote(rpc, 100n, block(100n), 100_000n), error => {
+    assert.match(error.message, /Cannot read the required Robinhood Nitro transaction gas limit/);
+    assert.doesNotMatch(error.message, /private\.example|api-secret|upstream/);
+    return true;
+  });
+});
+
+test('Nitro cap and fee reads start together for both EIP-1559 and legacy quotes', async () => {
+  for (const legacy of [false, true]) {
+    const calls = [];
+    let releaseCap;
+    const waiting = new Promise(resolve => { releaseCap = resolve; });
+    const rpc = { async send(method, params) {
+      calls.push(method);
+      if (method === 'eth_call') {
+        assert.deepEqual(params, [{ to: ARB_GAS_INFO, data: ARB_GAS_ABI.encodeFunctionData('getMaxTxGasLimit') }, 'latest']);
+        await waiting;
+        return ARB_GAS_ABI.encodeFunctionResult('getMaxTxGasLimit', [32_000_000n]);
+      }
+      assert.equal(method, legacy ? 'eth_gasPrice' : 'eth_maxPriorityFeePerGas');
+      return '0x3';
+    } };
+    const quote = gasQuote(rpc, 100n, { ...block(100n), ...(legacy ? { baseFeePerGas: null } : {}) }, 100_000n);
+    const started = [...calls];
+    releaseCap();
+    const result = await quote;
+    assert.deepEqual(started, ['eth_call', legacy ? 'eth_gasPrice' : 'eth_maxPriorityFeePerGas']);
+    assert.equal(result.gasLimit, 120n);
+    assert.equal(result.fees.type, legacy ? 0 : 2);
+    assert.equal(result.fees.gasPrice ?? result.fees.maxFeePerGas, legacy ? 3n : 203n);
+  }
 });
 
 function logsFor(quantity) {

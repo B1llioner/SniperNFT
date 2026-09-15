@@ -20,6 +20,8 @@ const ARTIFACT = await loadArtifact();
 const ABI = new Interface(ARTIFACT.abi);
 const SEA = new Interface(JSON.parse(await readFile(new URL('../research/seadrop-abi.json', import.meta.url), 'utf8')));
 const NFT = new Interface(NFT_ABI);
+const ARB_GAS_INFO = '0x000000000000000000000000000000000000006c';
+const MAX_TX_GAS_SELECTOR = '0xaae1cd4c'; // getMaxTxGasLimit()
 const NFT_CODE = (await readFile(new URL('../research/nft-runtime.hex', import.meta.url), 'utf8')).trim();
 const CREATION_DATA = ARTIFACT.bytecode + ABI.encodeDeploy([OWNER]).slice(2);
 const BLOCK_HASH = `0x${'a7'.repeat(32)}`;
@@ -83,6 +85,10 @@ async function fixture(t) {
       if (!tx.to) {
         assert.equal(tx.data.toLowerCase(), CREATION_DATA.toLowerCase());
         return runtime();
+      }
+      if (tx.to.toLowerCase() === ARB_GAS_INFO) {
+        assert.equal(tx.data, MAX_TX_GAS_SELECTOR);
+        return zeroPadValue('0x01e84800', 32); // uint256 32,000,000
       }
       if (tx.to.toLowerCase() === CONFIG.seaDrop.toLowerCase()) {
         const decoded = SEA.parseTransaction(tx);
@@ -356,7 +362,8 @@ test('fresh setup dry-run simulates deployment and stops without state or mintin
   assert.equal(rpc.submissions.length, 0);
   assert.ok(rpc.calls.some(call => call.method === 'eth_call' && !call.params[0].to));
   assert.ok(!rpc.calls.some(call => call.method === 'eth_call' && call.params[0].to
-    && ![CONFIG.nftContract, CONFIG.seaDrop].includes(call.params[0].to)));
+    && ![CONFIG.nftContract, CONFIG.seaDrop].includes(call.params[0].to)
+    && !(call.params[0].to.toLowerCase() === ARB_GAS_INFO && call.params[0].data === MAX_TX_GAS_SELECTOR)));
   assert.ok(await missing(rpc.stateFile));
   assert.ok(await missing(`${rpc.stateFile}.lock`));
 });

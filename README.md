@@ -12,6 +12,8 @@
 
 `quantity` задаёт максимум: по умолчанию минтится указанное число либо меньший доступный остаток. Например, запрос 10 при остатке 3 минтит 3. `minQuantity` по умолчанию равен 1; для строго заданного количества задайте его равным `quantity`.
 
+Для всего доступного остатка есть [batch.config.max.example.json](batch.config.max.example.json): `quantity: 1024`, `minQuantity: 1`. Фабрика читает остаток внутри транзакции до создания helper; при 910/1024 выбирает 114, а если конкурент оставит 6 — минтит 6. [Режим гонки и ограничения газа](BATCH.md#забрать-максимум-в-гонке).
+
 ## Одиночный минт
 
 Скрипт `mint.mjs` вызывает SeaDrop в **Robinhood Chain Mainnet, chain ID 4663**. Два режима:
@@ -106,7 +108,7 @@ unset PRIVATE_KEY
 
 ## Исследование и пределы проверки
 
-Промпт для реализации полного теста **пополнение 0.1 ETH → CREATE фабрики → локальное время → минт 10 NFT**: [FULL_BATCH_SIMULATION.md](prompts/FULL_BATCH_SIMULATION.md). В нём учтена [проверенная поддержка RPC](research/simulate-capabilities.json): `eth_simulateV1` доступен на обычных RPC, `eth_simulateV3` и симуляция через sequencer на проверенных endpoints недоступны. Это инструкция для следующего обновления; команда `simulate:full` пока не реализована.
+Промпт для реализации полного теста **пополнение 0.1 ETH → CREATE фабрики → локальное время → минт 10 NFT**, гонки за остаток и быстрой симуляции с виртуальной фабрикой: [FULL_BATCH_SIMULATION.md](prompts/FULL_BATCH_SIMULATION.md). В нём учтена [проверенная поддержка RPC](research/simulate-capabilities.json): `eth_simulateV1` доступен на обычных RPC, `eth_simulateV3` и симуляция через sequencer на проверенных endpoints недоступны. Отдельные тесты гонки реализованы: `npm run test:race` на подготовленном Anvil и `npm run simulate:race -- --target-supply latest` через read-only V1. [Результаты и ограничения](BATCH.md#тест-гонки-за-остаток-114-nft). Команда полного запуска `simulate:full` пока не реализована.
 
 Подробный разбор: [research/ANALYSIS.md](research/ANALYSIS.md), [research/BYTECODE.md](research/BYTECODE.md). Исходные данные, ABI, текущий runtime и снимки RPC сохранены в `research/`.
 

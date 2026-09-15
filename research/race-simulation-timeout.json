@@ -1,0 +1,95 @@
+{
+  "kind": "local-anvil-fork-supply-race",
+  "status": "failed",
+  "mainnetBroadcast": false,
+  "privateKeysRead": false,
+  "nftStorageOverrides": false,
+  "startedAt": "2026-09-15T14:46:48.581Z",
+  "conservativeTransactionGasCap": "32000000",
+  "gasCapNote": "32M test ceiling, also bounded by local block.gasLimit; no gas limit is raised. Nitro header gasLimit alone is insufficient.",
+  "scenarios": [],
+  "checks": [],
+  "client": "anvil/v1.7.1",
+  "forkBlock": 63609112,
+  "forkTimestamp": 1789470287,
+  "originalSupply": "906",
+  "maxSupply": "1024",
+  "nftCodeHash": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+  "factorySourceSha256": "a25f3cda74163f4f5d6411c1faf5050494eb6bcd39955429e5c1691e1fa8d1a8",
+  "publicStage": {
+    "startTime": "1789488020",
+    "endTime": "1789491620",
+    "mintPrice": "0"
+  },
+  "syntheticActors": {
+    "user": "0x652d9e45c6f2908008180a87a23d8fe94f6120f6",
+    "competitor": "0xf2fd2e19eb16f906ef694b409a40b6292545ca42",
+    "source": "Local Anvil exposed signers; private keys are never requested."
+  },
+  "syntheticActorCodeReset": "Only local actor accounts reset to ordinary EOAs; NFT and SeaDrop code/storage are unchanged.",
+  "factories": {
+    "user": {
+      "address": "0x15Ac6ee86541b0A8dED8D73067AF91B0202bfeF8",
+      "deploymentGasUsed": "663256",
+      "deploymentHash": "0x35db5c6e239db3c525d16c5ad9ec902e1ab2699783f53364e4cd88f09770ceaf"
+    },
+    "competitor": {
+      "address": "0xe707A592F2E72E1949666b8388A8E7568234AD11",
+      "deploymentGasUsed": "663256",
+      "deploymentHash": "0xb22dfd1d5a1e8f8647963a3d55ba098e1f84fc8298ae733f5a96258763652dfd"
+    }
+  },
+  "baselinePreparation": [
+    {
+      "label": "Real public mints to reach supply 910",
+      "hash": "0x721bb9590bf08ba9b2a0c1470e7d6d47861b259a84ebd2da7ddabbb68f3227bc",
+      "calldata": "0xaba5ede100000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000004",
+      "calldataHash": "0x4def90211cdcd0ab45f1c9bf5cb0157060988a4732fdcc7f08169e67bfc7b6f8",
+      "gasLimit": "1301302",
+      "gasUsed": "960394",
+      "status": 1,
+      "count": "4",
+      "supplyBefore": "906",
+      "supplyAfter": "910",
+      "recipient": "0xf2fd2e19eb16f906ef694b409a40b6292545ca42",
+      "balanceBefore": "0",
+      "balanceAfter": "4",
+      "tokenIds": [
+        "907",
+        "908",
+        "909",
+        "910"
+      ],
+      "helpers": [
+        "0x18A8A5E8f0Ffa83C7Ebd3635e706b515043cC04b",
+        "0x7703Af5BD9873E0eA7Da55dd1826977d2C40a95C",
+        "0xb1d71A79e86B6B0de2be2657c0AC4e1A117aA8D4",
+        "0x17B13579683d858422b1c7f82f45653405C41004"
+      ]
+    }
+  ],
+  "baselineSupply": "910",
+  "failure": {
+    "name": "Error",
+    "message": "request timeout"
+  },
+  "initialSnapshotRestored": false,
+  "finishedAt": "2026-09-15T14:53:18.542Z",
+  "limitations": [
+    "Local fork transactions only. Execution order is deliberately sequential; transactions do not interleave inside an EVM call.",
+    "Local Anvil gas omits Robinhood-specific L1 posting charges and is not a fresh mainnet gas quote or inclusion guarantee.",
+    "Snapshots restore all local changes, so the saved hashes are evidence of this local run, not public explorer transactions."
+  ],
+  "forkHash": "0xbfef391c6ab8fbcb753afd0c647fd7e0400c1ab54fff908fa74917dc147454d7",
+  "freshRestartBaseline": {
+    "block": 63609112,
+    "forkHash": "0xbfef391c6ab8fbcb753afd0c647fd7e0400c1ab54fff908fa74917dc147454d7",
+    "supply": "906",
+    "accountNonces": [
+      0,
+      0
+    ],
+    "checkedAt": "2026-09-15T14:57:13.534Z",
+    "kind": "freshly-restarted-local-node-before-authorized-second-run"
+  }
+}

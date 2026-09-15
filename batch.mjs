@@ -12,6 +12,8 @@ import { waitForPublicStage } from './lib/warm.mjs';
 const NFT_CODE_HASH = '0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c';
 const CONFIG_KEYS = new Set(['quantity', 'minQuantity', 'recipient', 'factory', 'rpcUrls', 'concurrency', 'attempts', 'retryDelayMs', 'maxGasCostEth', 'receiptTimeoutSeconds', 'maxFeeMultiplier', 'waitTimeoutSeconds', 'pollIntervalMs', 'keepAliveIntervalMs']);
 const SEA_READ = new Interface(SEADROP_ABI);
+const ARB_GAS_INFO = '0x000000000000000000000000000000000000006c';
+const ARB_GAS_ABI = new Interface(['function getMaxTxGasLimit() view returns (uint256)']);
 const PREPARED = new WeakMap();
 const DIRECT_SEADROP = new Interface([
   'function mintPublic(address nftContract,address feeRecipient,address minterIfNotPayer,uint256 quantity) payable',
@@ -247,11 +249,31 @@ export async function gasQuote(provider, estimate, block, maxCost, maxFeeMultipl
   check(Number.isSafeInteger(maxFeeMultiplier) && maxFeeMultiplier >= 1 && maxFeeMultiplier <= 20, 'maxFeeMultiplier must be between 1 and 20.');
   const gasLimit = (estimate * 120n + 99n) / 100n;
   check(gasLimit <= parseUint(block.gasLimit), 'Estimated transaction exceeds the block gas limit.');
+  const readNitroLimit = async () => {
+    let encoded;
+    try {
+      encoded = await provider.send('eth_call', [{ to: ARB_GAS_INFO, data: ARB_GAS_ABI.encodeFunctionData('getMaxTxGasLimit') }, 'latest']);
+    } catch {
+      throw new MintError('Cannot read the required Robinhood Nitro transaction gas limit from ArbGasInfo. Submission stopped.');
+    }
+    check(isHexString(encoded, 32), 'RPC returned an invalid Nitro transaction gas limit. Submission stopped.');
+    const [limit] = ARB_GAS_ABI.decodeFunctionResult('getMaxTxGasLimit', encoded);
+    check(limit > 0n && limit < (1n << 64n), 'RPC returned an invalid Nitro transaction gas limit. Submission stopped.');
+    return limit;
+  };
+  const [maxTxGasLimit, rawFee] = await Promise.all([
+    readNitroLimit(),
+    provider.send(block.baseFeePerGas != null ? 'eth_maxPriorityFeePerGas' : 'eth_gasPrice', []),
+  ]);
+  // Nitro accounts for L1 posting separately from L2 execution. Comparing the
+  // entire buffered estimate against its transaction cap is conservative.
+  check(gasLimit <= maxTxGasLimit,
+    `Total gas limit ${gasLimit} exceeds Nitro maxTxGasLimit ${maxTxGasLimit}. This conservative check includes any L1 posting gas in the estimate. Limits and gas budget will not be increased automatically.`);
   let fees;
   if (block.baseFeePerGas != null) {
-    const priority = parseUint(await provider.send('eth_maxPriorityFeePerGas', []));
+    const priority = parseUint(rawFee);
     fees = { type: 2, maxPriorityFeePerGas: priority, maxFeePerGas: parseUint(block.baseFeePerGas) * BigInt(maxFeeMultiplier) + priority };
-  } else fees = { type: 0, gasPrice: parseUint(await provider.send('eth_gasPrice', [])) };
+  } else fees = { type: 0, gasPrice: parseUint(rawFee) };
   const maxGasCost = gasLimit * (fees.maxFeePerGas ?? fees.gasPrice);
   check(maxGasCost <= maxCost, 'Maximum gas cost exceeds maxGasCostEth / --max-gas-cost-eth.');
   return { gasLimit, maxGasCost, fees };

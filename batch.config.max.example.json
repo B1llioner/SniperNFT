@@ -1,0 +1,19 @@
+{
+  "quantity": 1024,
+  "minQuantity": 1,
+  "recipient": null,
+  "factory": null,
+  "rpcUrls": [
+    "https://robinhood-rpc.publicnode.com",
+    "https://rpc.mainnet.chain.robinhood.com"
+  ],
+  "concurrency": 2,
+  "attempts": 2,
+  "retryDelayMs": 250,
+  "maxGasCostEth": "0.08",
+  "maxFeeMultiplier": 2,
+  "receiptTimeoutSeconds": 120,
+  "waitTimeoutSeconds": 21600,
+  "pollIntervalMs": 250,
+  "keepAliveIntervalMs": 10000
+}

@@ -1,0 +1,47 @@
+{
+  "kind": "read-only-nitro-gas-limit-smoke",
+  "recordedAt": "2026-09-15T14:48:13.390Z",
+  "endpoint": "https://robinhood-rpc.publicnode.com",
+  "mainnetBroadcast": false,
+  "chainId": "0x1237",
+  "source": "https://docs.arbitrum.io/arbitrum-essentials/precompiles/reference#arbgasinfo",
+  "note": "gasQuote uses a synthetic 100000 gas estimate to test live RPC integration. This is not a mint estimate.",
+  "observedBlock": {
+    "number": "0x3cc96ea",
+    "hash": "0x85f8756d56fd56aa8daa1e939a1b7748701f2c4de9d711012f9cba13cb9e4ee4",
+    "gasLimit": "0x4000000000000",
+    "baseFeePerGas": "0x3f8c110"
+  },
+  "quote": {
+    "gasLimit": "120000",
+    "maxGasCost": "15992160000000",
+    "fees": {
+      "type": 2,
+      "maxPriorityFeePerGas": "0",
+      "maxFeePerGas": "133268000"
+    }
+  },
+  "calls": [
+    {
+      "method": "eth_chainId",
+      "params": [],
+      "result": "0x1237"
+    },
+    {
+      "method": "eth_maxPriorityFeePerGas",
+      "params": [],
+      "result": "0x0"
+    },
+    {
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0x000000000000000000000000000000000000006c",
+          "data": "0xaae1cd4c"
+        },
+        "latest"
+      ],
+      "result": "0x0000000000000000000000000000000000000000000000000000000001e84800"
+    }
+  ]
+}

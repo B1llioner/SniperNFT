@@ -1,0 +1,1889 @@
+{
+  "kind": "single-request-stateful-eth-simulate-v1-mint-races",
+  "recordedAt": "2026-09-15T15:03:49.408Z",
+  "chainId": "4663",
+  "mainnetBroadcast": false,
+  "privateKeysRead": false,
+  "transactionsSigned": false,
+  "artifactSourceSha256": "a25f3cda74163f4f5d6411c1faf5050494eb6bcd39955429e5c1691e1fa8d1a8",
+  "compiler": "0.8.26+commit.8a97fa7a.Emscripten.clang",
+  "observer": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+  "actors": {
+    "factories": {
+      "preparer": {
+        "owner": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED",
+        "recipient": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED",
+        "factory": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+        "runtimeKeccak256": "0x85579f6e73ea9a0e67837078709be3d3d46b2f8806ff546e50b18980e1869408"
+      },
+      "competitor": {
+        "owner": "0x4C0Ddf390697D130131e2cb664096f13618463FF",
+        "recipient": "0x4C0Ddf390697D130131e2cb664096f13618463FF",
+        "factory": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+        "runtimeKeccak256": "0x96e20b872e450cb5ca41a4931a574b24a1e561d1e59d4da6d0181cad0de3ab79"
+      },
+      "ours": {
+        "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C",
+        "recipient": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C",
+        "factory": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+        "runtimeKeccak256": "0x4ddcd8e74c126592e2d7ae9a893faf6047f1965b6ca31bb653c2f25d5f39fcab"
+      }
+    },
+    "directMinters": [
+      "0xA6A69C14ad892d5F74DD68f98BD293Ea20E449Fc",
+      "0x15cB1b89B4Fd3d7d965F81849FA37f28d65d78C8",
+      "0x77043a2AEFdc2c2AFb29e9C9D230C5FcC0330b6f",
+      "0x3ca140e1A9e1dB3784680a4bb471608960bB5ffB",
+      "0x167f4f500a9a75887d108e4881dEB318C7680131",
+      "0xc1265Ec0564ff549Bb15ea6c6BB85286854b9435",
+      "0x448A9efC5EC07340090D191956aB92D33C92A9D2",
+      "0x032DC214c55ABE129729B481a34D8C65f87BB625",
+      "0xAAcd7af0a6e231305a9A4509Fe8B3C454F3b7f33",
+      "0xc73B1ce512Df8808AA1d7A3aB9995B9983683938"
+    ]
+  },
+  "assumptions": {
+    "initialEoaBalanceWei": "100000000000000000",
+    "initialEoaNonce": 0,
+    "virtualFactoryNonce": 1,
+    "targetSupply": "latest",
+    "maxTransactionGas": "32000000",
+    "maxVirtualBlockGas": "32000000",
+    "maxResponseBytes": 8388608,
+    "timeoutMs": 60000
+  },
+  "scope": "Virtual factory runtime with verified compiled owner/recipient immutables and nonce 1; factory CREATE deployment is not simulated. Factory helpers execute real CREATE, SeaDrop mintPublic and NFT safeTransferFrom inside one V1 request per case. Original NFT/SeaDrop/dependency code and storage are not overridden.",
+  "limitations": [
+    "Virtual ordering is deliberately selected, not a prediction of sequencer order.",
+    "The simulation starts at latest and checks the observed starting supply inside the same call sequence. Head/read values can change before the request.",
+    "Positive base fee is frozen from the observed head and explicit maxFee is 4 times that value. This is not a future fee forecast.",
+    "RPC whole-simulation gas limits may differ from transaction or per-block caps; rejected cases are recorded as failures.",
+    "No separate eth_call is used to verify simulated post-state; all post-state assertions are calls within the same V1 request."
+  ],
+  "historicalCapability": [
+    {
+      "name": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "requestedAt": "2026-09-15T15:00:10.622Z",
+      "method": "eth_simulateV1",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "blockOverrides": {
+                "time": "0x6aa96b95",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3ff48f0"
+              },
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x16345785d8a0000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "gas": "0x186a0",
+                  "nonce": "0x0",
+                  "maxFeePerGas": "0xffd23c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "value": "0x0"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "0x3ca989e"
+      ],
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32000,
+          "message": "historical state 185872c930a74357ca87317d8fdec56c624dc4766fd420e074a261a495abea11 is not available"
+        }
+      }
+    },
+    {
+      "name": "official",
+      "url": "https://rpc.mainnet.chain.robinhood.com",
+      "requestedAt": "2026-09-15T15:00:10.919Z",
+      "method": "eth_simulateV1",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "blockOverrides": {
+                "time": "0x6aa96b95",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3ff48f0"
+              },
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x16345785d8a0000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "gas": "0x186a0",
+                  "nonce": "0x0",
+                  "maxFeePerGas": "0xffd23c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "value": "0x0"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "0x3ca989e"
+      ],
+      "httpStatus": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32000,
+          "message": "metadata is not found, 63608993"
+        }
+      }
+    },
+    {
+      "name": "tenderly-public-gateway",
+      "url": "https://robinhood-chain.gateway.tenderly.co",
+      "requestedAt": "2026-09-15T15:01:31.553Z",
+      "method": "eth_simulateV1",
+      "params": [
+        {
+          "blockStateCalls": [
+            {
+              "blockOverrides": {
+                "time": "0x6aa96b95",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3ff48f0"
+              },
+              "stateOverrides": {
+                "0x7777777777777777777777777777777777777777": {
+                  "balance": "0x16345785d8a0000",
+                  "nonce": "0x0",
+                  "code": "0x"
+                }
+              },
+              "calls": [
+                {
+                  "from": "0x7777777777777777777777777777777777777777",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "gas": "0x186a0",
+                  "nonce": "0x0",
+                  "maxFeePerGas": "0xffd23c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "value": "0x0"
+                }
+              ]
+            }
+          ],
+          "validation": true
+        },
+        "0x3ca9918"
+      ],
+      "httpStatus": 429,
+      "response": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32005,
+          "message": "rate limit exceeded"
+        }
+      }
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "publicnode",
+      "url": "https://robinhood-rpc.publicnode.com",
+      "cases": [
+        {
+          "name": "control",
+          "expectedOurCount": "93",
+          "status": "passed",
+          "plan": [
+            {
+              "label": "install virtual factories and assert baseline",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x1",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x66d003ac",
+                  "nonce": "0x2",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x3",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x66d003ac",
+                  "nonce": "0x4",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x5",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x66d003ac",
+                  "nonce": "0x6",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f5",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "our maximum request",
+              "calls": [
+                {
+                  "from": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0xaba5ede100000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x1d905c0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f6",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "assert final NFT state inside the same simulation",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x7",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x70a082310000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+                  "nonce": "0x8",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x6352211e00000000000000000000000000000000000000000000000000000000000003a4",
+                  "nonce": "0x9",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x6352211e0000000000000000000000000000000000000000000000000000000000000400",
+                  "nonce": "0xa",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f7",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            }
+          ],
+          "requestSha256": "05b43992c0d51177225d054c055d56cde4c6f54d17f1af2068d250c1ffdb36a6",
+          "elapsedMs": 513,
+          "responseBytes": 406431,
+          "responseSha256": "a4fcacd81d10a8cdd181c27dd40cf2f72da8d796903d399988a8664a032eb7d4",
+          "calls": [
+            {
+              "label": "snapshot-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003a30000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "931",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "preparer-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "preparer-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "competitor-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "competitor-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "ours-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "ours-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "our-mint-1024-minimum-1",
+              "status": "0x1",
+              "gasUsed": "0x134a5dd",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000005d",
+              "logCount": 559,
+              "assertion": {
+                "count": "93",
+                "firstTokenId": "932",
+                "lastTokenId": "1024",
+                "helperCount": 93,
+                "nftTransferCount": 186
+              }
+            },
+            {
+              "label": "final-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "1024",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-final-balance",
+              "status": "0x1",
+              "gasUsed": "0x5df9",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000005d",
+              "logCount": 0,
+              "assertion": {
+                "balance": "93"
+              }
+            },
+            {
+              "label": "final-owner-932",
+              "status": "0x1",
+              "gasUsed": "0x5d45",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "tokenId": "932",
+                "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "final-owner-1024",
+              "status": "0x1",
+              "gasUsed": "0x5d39",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "tokenId": "1024",
+                "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            }
+          ],
+          "blocks": [
+            {
+              "number": "0x3ccba34",
+              "timestamp": "0x6aaaa0f5",
+              "gasUsed": "0x25810",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba35",
+              "timestamp": "0x6aaaa0f6",
+              "gasUsed": "0x134a5dd",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba36",
+              "timestamp": "0x6aaaa0f7",
+              "gasUsed": "0x17e0f",
+              "baseFeePerGas": "0x3e3b270"
+            }
+          ]
+        },
+        {
+          "name": "ten-independent-minters",
+          "expectedOurCount": "83",
+          "status": "passed",
+          "plan": [
+            {
+              "label": "install virtual factories and assert baseline",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x1",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x66d003ac",
+                  "nonce": "0x2",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x3",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x66d003ac",
+                  "nonce": "0x4",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x5",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x66d003ac",
+                  "nonce": "0x6",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f5",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "ten distinct real SeaDrop public mints",
+              "calls": [
+                {
+                  "from": "0xA6A69C14ad892d5F74DD68f98BD293Ea20E449Fc",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0x15cB1b89B4Fd3d7d965F81849FA37f28d65d78C8",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0x77043a2AEFdc2c2AFb29e9C9D230C5FcC0330b6f",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0x3ca140e1A9e1dB3784680a4bb471608960bB5ffB",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0x167f4f500a9a75887d108e4881dEB318C7680131",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xc1265Ec0564ff549Bb15ea6c6BB85286854b9435",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0x448A9efC5EC07340090D191956aB92D33C92A9D2",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0x032DC214c55ABE129729B481a34D8C65f87BB625",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAAcd7af0a6e231305a9A4509Fe8B3C454F3b7f33",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xc73B1ce512Df8808AA1d7A3aB9995B9983683938",
+                  "to": "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5",
+                  "data": "0x161ac21f000000000000000000000000116eaa62241751e0c98da43d458600c6c17cd3610000000000000000000000000000a26b00c1f0df003000390027140000faa71900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x3d090",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x7",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f6",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "our maximum request",
+              "calls": [
+                {
+                  "from": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0xaba5ede100000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x1d905c0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f7",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "assert final NFT state inside the same simulation",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x8",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x70a082310000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+                  "nonce": "0x9",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x6352211e00000000000000000000000000000000000000000000000000000000000003ae",
+                  "nonce": "0xa",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x6352211e0000000000000000000000000000000000000000000000000000000000000400",
+                  "nonce": "0xb",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f8",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            }
+          ],
+          "requestSha256": "d71922a64485cd272d0abb20fe43604bece757dec2eea3e145ff4404bab688e7",
+          "elapsedMs": 369,
+          "responseBytes": 396950,
+          "responseSha256": "662b86b31f80727aefc5c810fcc6322178b8b91f5b863312e3b35500aadf2664",
+          "calls": [
+            {
+              "label": "snapshot-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003a30000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "931",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "preparer-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "preparer-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "competitor-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "competitor-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "ours-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "ours-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "direct-competitor-1",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "932",
+                "recipient": "0xA6A69C14ad892d5F74DD68f98BD293Ea20E449Fc"
+              }
+            },
+            {
+              "label": "direct-competitor-2",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "933",
+                "recipient": "0x15cB1b89B4Fd3d7d965F81849FA37f28d65d78C8"
+              }
+            },
+            {
+              "label": "direct-competitor-3",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "934",
+                "recipient": "0x77043a2AEFdc2c2AFb29e9C9D230C5FcC0330b6f"
+              }
+            },
+            {
+              "label": "direct-competitor-4",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "935",
+                "recipient": "0x3ca140e1A9e1dB3784680a4bb471608960bB5ffB"
+              }
+            },
+            {
+              "label": "direct-competitor-5",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "936",
+                "recipient": "0x167f4f500a9a75887d108e4881dEB318C7680131"
+              }
+            },
+            {
+              "label": "direct-competitor-6",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "937",
+                "recipient": "0xc1265Ec0564ff549Bb15ea6c6BB85286854b9435"
+              }
+            },
+            {
+              "label": "direct-competitor-7",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "938",
+                "recipient": "0x448A9efC5EC07340090D191956aB92D33C92A9D2"
+              }
+            },
+            {
+              "label": "direct-competitor-8",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "939",
+                "recipient": "0x032DC214c55ABE129729B481a34D8C65f87BB625"
+              }
+            },
+            {
+              "label": "direct-competitor-9",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "940",
+                "recipient": "0xAAcd7af0a6e231305a9A4509Fe8B3C454F3b7f33"
+              }
+            },
+            {
+              "label": "direct-competitor-10",
+              "status": "0x1",
+              "gasUsed": "0x30324",
+              "returnData": "0x",
+              "logCount": 4,
+              "assertion": {
+                "tokenId": "941",
+                "recipient": "0xc73B1ce512Df8808AA1d7A3aB9995B9983683938"
+              }
+            },
+            {
+              "label": "after-independent-minters",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003ad0000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "941",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-mint-1024-minimum-1",
+              "status": "0x1",
+              "gasUsed": "0x1139d6b",
+              "returnData": "0x0000000000000000000000000000000000000000000000000000000000000053",
+              "logCount": 499,
+              "assertion": {
+                "count": "83",
+                "firstTokenId": "942",
+                "lastTokenId": "1024",
+                "helperCount": 83,
+                "nftTransferCount": 166
+              }
+            },
+            {
+              "label": "final-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "1024",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-final-balance",
+              "status": "0x1",
+              "gasUsed": "0x5df9",
+              "returnData": "0x0000000000000000000000000000000000000000000000000000000000000053",
+              "logCount": 0,
+              "assertion": {
+                "balance": "83"
+              }
+            },
+            {
+              "label": "final-owner-942",
+              "status": "0x1",
+              "gasUsed": "0x5d45",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "tokenId": "942",
+                "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "final-owner-1024",
+              "status": "0x1",
+              "gasUsed": "0x5d39",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "tokenId": "1024",
+                "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            }
+          ],
+          "blocks": [
+            {
+              "number": "0x3ccba39",
+              "timestamp": "0x6aaaa0f5",
+              "gasUsed": "0x25810",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba3a",
+              "timestamp": "0x6aaaa0f6",
+              "gasUsed": "0x1e8500",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba3b",
+              "timestamp": "0x6aaaa0f7",
+              "gasUsed": "0x1139d6b",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba3c",
+              "timestamp": "0x6aaaa0f8",
+              "gasUsed": "0x17e0f",
+              "baseFeePerGas": "0x3e3b270"
+            }
+          ]
+        },
+        {
+          "name": "competitor-mints-87",
+          "expectedOurCount": "6",
+          "status": "passed",
+          "plan": [
+            {
+              "label": "install virtual factories and assert baseline",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x1",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x66d003ac",
+                  "nonce": "0x2",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x3",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x66d003ac",
+                  "nonce": "0x4",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x5",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x66d003ac",
+                  "nonce": "0x6",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f5",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "competitor consumes supply",
+              "calls": [
+                {
+                  "from": "0x4C0Ddf390697D130131e2cb664096f13618463FF",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0xaba5ede100000000000000000000000000000000000000000000000000000000000000570000000000000000000000000000000000000000000000000000000000000057",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x1d905c0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x7",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f6",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "our maximum request",
+              "calls": [
+                {
+                  "from": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0xaba5ede100000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x1d905c0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f7",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "assert final NFT state inside the same simulation",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x8",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x70a082310000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+                  "nonce": "0x9",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x6352211e00000000000000000000000000000000000000000000000000000000000003fb",
+                  "nonce": "0xa",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x6352211e0000000000000000000000000000000000000000000000000000000000000400",
+                  "nonce": "0xb",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f8",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            }
+          ],
+          "requestSha256": "a1e507cbfae070003e4f825a5f525c388242b29a68fa02d0e2af8f720bafc494",
+          "elapsedMs": 543,
+          "responseBytes": 409187,
+          "responseSha256": "c7ec7554eeec067b3767a0b3ece57a34547e4808f374db794c79dcb4a7e335d6",
+          "calls": [
+            {
+              "label": "snapshot-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003a30000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "931",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "preparer-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "preparer-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "competitor-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "competitor-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "ours-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "ours-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "competitor-factory-mint",
+              "status": "0x1",
+              "gasUsed": "0x120d409",
+              "returnData": "0x0000000000000000000000000000000000000000000000000000000000000057",
+              "logCount": 523,
+              "assertion": {
+                "count": "87",
+                "firstTokenId": "932",
+                "lastTokenId": "1018",
+                "helperCount": 87,
+                "nftTransferCount": 174
+              }
+            },
+            {
+              "label": "after-competitor",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fa0000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "1018",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-mint-1024-minimum-1",
+              "status": "0x1",
+              "gasUsed": "0x1542ca",
+              "returnData": "0x0000000000000000000000000000000000000000000000000000000000000006",
+              "logCount": 37,
+              "assertion": {
+                "count": "6",
+                "firstTokenId": "1019",
+                "lastTokenId": "1024",
+                "helperCount": 6,
+                "nftTransferCount": 12
+              }
+            },
+            {
+              "label": "final-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "1024",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-final-balance",
+              "status": "0x1",
+              "gasUsed": "0x5df9",
+              "returnData": "0x0000000000000000000000000000000000000000000000000000000000000006",
+              "logCount": 0,
+              "assertion": {
+                "balance": "6"
+              }
+            },
+            {
+              "label": "final-owner-1019",
+              "status": "0x1",
+              "gasUsed": "0x5d45",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "tokenId": "1019",
+                "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "final-owner-1024",
+              "status": "0x1",
+              "gasUsed": "0x5d39",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "tokenId": "1024",
+                "owner": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            }
+          ],
+          "blocks": [
+            {
+              "number": "0x3ccba3d",
+              "timestamp": "0x6aaaa0f5",
+              "gasUsed": "0x25810",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba3e",
+              "timestamp": "0x6aaaa0f6",
+              "gasUsed": "0x12139a1",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba3f",
+              "timestamp": "0x6aaaa0f7",
+              "gasUsed": "0x1542ca",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba40",
+              "timestamp": "0x6aaaa0f8",
+              "gasUsed": "0x17e0f",
+              "baseFeePerGas": "0x3e3b270"
+            }
+          ]
+        },
+        {
+          "name": "competitor-mints-93",
+          "expectedOurCount": "0",
+          "status": "passed",
+          "plan": [
+            {
+              "label": "install virtual factories and assert baseline",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x1",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0xDBF1d234f2b93d1A28333a50506F6b92628a177E",
+                  "data": "0x66d003ac",
+                  "nonce": "0x2",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x3",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0x66d003ac",
+                  "nonce": "0x4",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x8da5cb5b",
+                  "nonce": "0x5",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0x66d003ac",
+                  "nonce": "0x6",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f5",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "competitor consumes supply",
+              "calls": [
+                {
+                  "from": "0x4C0Ddf390697D130131e2cb664096f13618463FF",
+                  "to": "0x64770aDaEb19e770BFA70547af81a4Ed97b1Ac75",
+                  "data": "0xaba5ede1000000000000000000000000000000000000000000000000000000000000005d000000000000000000000000000000000000000000000000000000000000005d",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x1d905c0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x7",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f6",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "our maximum request",
+              "calls": [
+                {
+                  "from": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C",
+                  "to": "0x361758fD715A6EF8Ce6fA18884280F274E18B5E7",
+                  "data": "0xaba5ede100000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000001",
+                  "nonce": "0x0",
+                  "value": "0x0",
+                  "gas": "0x1d905c0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f7",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            },
+            {
+              "label": "assert final NFT state inside the same simulation",
+              "calls": [
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x840e15d40000000000000000000000000000000000000000000000000000000000000000",
+                  "nonce": "0x8",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                },
+                {
+                  "from": "0xAdcdf900856DdD61644942981E3676D7E6F527FE",
+                  "to": "0x116EaA62241751E0c98dA43d458600c6C17cD361",
+                  "data": "0x70a082310000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+                  "nonce": "0x9",
+                  "value": "0x0",
+                  "gas": "0x249f0",
+                  "maxFeePerGas": "0xf8ec9c0",
+                  "maxPriorityFeePerGas": "0x0",
+                  "chainId": "0x1237"
+                }
+              ],
+              "blockOverrides": {
+                "time": "0x6aaaa0f8",
+                "gasLimit": "0x1e84800",
+                "baseFeePerGas": "0x3e3b270"
+              }
+            }
+          ],
+          "requestSha256": "9bad016a8df0ce32fdf09717d95db9f80fd1c9bb931d172edd62e6dea9e899b8",
+          "elapsedMs": 396,
+          "responseBytes": 408415,
+          "responseSha256": "1d7ff1270a5898671aba9578e1499add4050b1793ffd4af3950ceab10e8c85f7",
+          "calls": [
+            {
+              "label": "snapshot-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003a30000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "931",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "preparer-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "preparer-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000007d6a1dcf1805e782fd87269767a76bad53854aed",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x7D6A1dCf1805e782fD87269767A76Bad53854AED"
+              }
+            },
+            {
+              "label": "competitor-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "competitor-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000004c0ddf390697d130131e2cb664096f13618463ff",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x4C0Ddf390697D130131e2cb664096f13618463FF"
+              }
+            },
+            {
+              "label": "ours-owner",
+              "status": "0x1",
+              "gasUsed": "0x532a",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "ours-recipient",
+              "status": "0x1",
+              "gasUsed": "0x52fe",
+              "returnData": "0x0000000000000000000000009cbb34b1a52e94c7cdf898cc76ad5e842b696e5c",
+              "logCount": 0,
+              "assertion": {
+                "value": "0x9cbb34B1A52E94c7cdf898Cc76ad5E842B696E5C"
+              }
+            },
+            {
+              "label": "competitor-factory-mint",
+              "status": "0x1",
+              "gasUsed": "0x134a5e7",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000005d",
+              "logCount": 559,
+              "assertion": {
+                "count": "93",
+                "firstTokenId": "932",
+                "lastTokenId": "1024",
+                "helperCount": 93,
+                "nftTransferCount": 186
+              }
+            },
+            {
+              "label": "after-competitor",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "1024",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-mint-1024-minimum-1",
+              "status": "0x0",
+              "gasUsed": "0xe5a4",
+              "returnData": "0x",
+              "logCount": 0,
+              "error": {
+                "message": "execution reverted",
+                "code": -32000,
+                "data": "0x9e4c446100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+              },
+              "assertion": {
+                "expectedRevert": "InsufficientSupply(0,1)",
+                "earlyRevert": true
+              }
+            },
+            {
+              "label": "final-supply",
+              "status": "0x1",
+              "gasUsed": "0x6598",
+              "returnData": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400",
+              "logCount": 0,
+              "assertion": {
+                "supply": "1024",
+                "maxSupply": "1024"
+              }
+            },
+            {
+              "label": "our-final-balance",
+              "status": "0x1",
+              "gasUsed": "0x5df9",
+              "returnData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+              "logCount": 0,
+              "assertion": {
+                "balance": "0"
+              }
+            }
+          ],
+          "blocks": [
+            {
+              "number": "0x3ccba44",
+              "timestamp": "0x6aaaa0f5",
+              "gasUsed": "0x25810",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba45",
+              "timestamp": "0x6aaaa0f6",
+              "gasUsed": "0x1350b7f",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba46",
+              "timestamp": "0x6aaaa0f7",
+              "gasUsed": "0xe5a4",
+              "baseFeePerGas": "0x3e3b270"
+            },
+            {
+              "number": "0x3ccba47",
+              "timestamp": "0x6aaaa0f8",
+              "gasUsed": "0xc391",
+              "baseFeePerGas": "0x3e3b270"
+            }
+          ]
+        }
+      ],
+      "observedSnapshot": {
+        "blockNumber": "0x3ccba0d",
+        "blockHash": "0xfde84c878a32c822ecb034c04fa330e079fa751e6ff604d396f99511d07ad972",
+        "timestamp": "0x6aa95e55",
+        "supply": "931",
+        "maxSupply": "1024"
+      },
+      "baseline": {
+        "supply": "931",
+        "maximum": "1024",
+        "targetSupply": "931",
+        "time": "1789567221",
+        "endTime": "1789570820",
+        "baseFee": "65254000",
+        "maxTxGas": "32000000",
+        "head": {
+          "number": "0x3ccba0d",
+          "hash": "0xfde84c878a32c822ecb034c04fa330e079fa751e6ff604d396f99511d07ad972",
+          "timestamp": "0x6aa95e55",
+          "baseFeePerGas": "0x3e3b270"
+        },
+        "publicDrop": {
+          "mintPrice": "0",
+          "startTime": "1789567220",
+          "endTime": "1789570820",
+          "maxTotalMintableByWallet": "1"
+        },
+        "dependencyRuntimeHashes": {
+          "nft": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+          "seaDrop": "0x53e4b9339cf624803c9a7d0195576cca5b917920813508d86b3eb93dcbabeb5c"
+        }
+      },
+      "factoryCodeAfter": "0x",
+      "identicalOurTransactionRequest": true
+    }
+  ],
+  "success": true
+}

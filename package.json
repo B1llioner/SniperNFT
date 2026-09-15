@@ -16,6 +16,8 @@
     "test": "node --test test/*.test.mjs",
     "compile:batch": "node scripts/compile-batch.mjs",
     "test:batch": "node scripts/simulate-batch.mjs",
+    "test:race": "node scripts/simulate-race.mjs",
+    "simulate:race": "node scripts/simulate-race-rpc.mjs",
     "simulate:rpc": "node scripts/simulate-rpc-batch.mjs"
   },
   "dependencies": {

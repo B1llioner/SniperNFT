@@ -24,6 +24,8 @@ const ARTIFACT = await loadArtifact();
 const ABI = new Interface(ARTIFACT.abi);
 const SEA_ABI = new Interface(JSON.parse(await readFile(new URL('../research/seadrop-abi.json', import.meta.url), 'utf8')));
 const TOKEN_ABI = new Interface(NFT_ABI);
+const ARB_GAS_INFO = '0x000000000000000000000000000000000000006c';
+const MAX_TX_GAS_SELECTOR = '0xaae1cd4c'; // getMaxTxGasLimit()
 const NFT_CODE = (await readFile(new URL('../research/nft-runtime.hex', import.meta.url), 'utf8')).trim();
 const BASE_CONFIG = { factory: FACTORY, rpcUrls: ['http://127.0.0.1:1'], quantity: 3, minQuantity: 2 };
 const SINGLE_CONFIG = { quantity: 1, minQuantity: null, factory: null, recipient: null };
@@ -213,6 +215,12 @@ function mockRpc(overrides = {}) {
       case 'eth_call': {
         const [tx] = params;
         if (tx.to == null) return factoryRuntime();
+        if (tx.to.toLowerCase() === ARB_GAS_INFO) {
+          assert.equal(tx.data, MAX_TX_GAS_SELECTOR);
+          assert.equal(params[1], 'latest');
+          assert.equal(params.length, 2);
+          return zeroPadValue('0x01e84800', 32); // uint256 32,000,000
+        }
         if (tx.to.toLowerCase() === CONFIG.seaDrop.toLowerCase()) {
           const decoded = SEA_ABI.parseTransaction(tx);
           assert.equal(decoded.name, 'mintPublic');
