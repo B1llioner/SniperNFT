@@ -138,6 +138,13 @@ async function fixture(t, fault = null) {
       const journal = await readFile(join(output, 'journal.jsonl'), 'utf8');
       assert.ok(journal.split('\n').filter(Boolean).map(JSON.parse).some(entry => entry.type === 'intent' && entry.hash === tx.hash && entry.nonce === tx.nonce), 'Persist the transaction hash and nonce before submitting it.');
       state.submissions.push({ route, tx });
+      if (fault === 'expired-mint-windows' && tx.nonce === 3) {
+        // Move the actual EVM clock after setup/preflight, without delaying ACK
+        // or substituting receipt data. Every subsequent real mint window is
+        // already expired when its transaction executes.
+        await upstream.send('evm_increaseTime', [2]);
+        state.faults.push('Local EVM time advanced by two seconds before the first mint.');
+      }
       if (fault === 'timeout-before-broadcast') {
         state.faults.push('No upstream acceptance; response exceeds the sender timeout.');
         await delay(1800); // Rust sender deadline is 1500 ms; do not send to Anvil.
@@ -420,6 +427,150 @@ test('Rust timed benchmark runs both transports through real deployment, arming 
   assert.match(result.stdout, /p95/i);
   assert.match(result.stdout, /p99/i);
   t.diagnostic(JSON.stringify({ localOnly: true, actualTransactions: 26, gasCostWei: actualCost.toString(), routes: completed.routes.map(route => ({ route: route.route, fullBatches: route.fullBatches, firstBlockHits: route.firstBlockHits })) }));
+});
+
+async function verifyGuardRoundEvidence(state, route, count, mintedPerRound, status) {
+  const collection = getCreateAddress({ from: OWNER, nonce: 0 });
+  const factory = getCreateAddress({ from: OWNER, nonce: 1 });
+  assert.equal(route.collection.toLowerCase(), collection.toLowerCase());
+  assert.equal(route.factory.toLowerCase(), factory.toLowerCase());
+  assert.equal(route.rounds.length, 10);
+  assert.equal(state.submissions.length, count + 3);
+  assert.ok(state.submissions.every(entry => entry.route === 'https'));
+  assert.deepEqual(state.submissions.map(({ tx }) => tx.nonce), Array.from({ length: count + 3 }, (_, index) => index));
+  assert.equal(new Set(state.submissions.map(({ tx }) => tx.hash)).size, count + 3, 'The failure guard must never resubmit a transaction.');
+  const helpers = new Set();
+  for (let round = 0; round < count; round++) {
+    const { tx } = state.submissions[round + 3];
+    const row = route.rounds[round];
+    assert.equal(tx.to, factory);
+    const call = FACTORY_ABI.parseTransaction(tx);
+    assert.equal(call.name, 'mintBatch');
+    assert.equal(call.args[0], BigInt(round));
+    assert.equal(call.args[1], 10n);
+    const receipt = await state.upstream.send('eth_getTransactionReceipt', [tx.hash]);
+    assert.equal(receipt.status, '0x1', 'Late/expired fixture transactions must have genuine successful EVM receipts.');
+    const event = receipt.logs.filter(log => log.address.toLowerCase() === factory.toLowerCase()).map(log => FACTORY_ABI.parseLog(log));
+    assert.equal(event.length, 1);
+    assert.equal(event[0].name, 'BatchResult');
+    assert.equal(event[0].args.round, BigInt(round));
+    assert.equal(event[0].args.minted, BigInt(mintedPerRound));
+    assert.equal(event[0].args.status, BigInt(status));
+    assert.equal(row.hash, tx.hash);
+    assert.equal(row.attempt.hash, tx.hash);
+    assert.equal(row.attempt.sendError, null);
+    assert.equal(row.minted, mintedPerRound);
+    assert.equal(row.batchResult.status, status);
+    assert.equal(row.receipt.hash, receipt.transactionHash);
+    assert.equal(row.receipt.blockHash, receipt.blockHash);
+    const actual = await state.upstream.send('eth_getBlockByNumber', [receipt.blockNumber, false]);
+    assert.equal(actual.hash, receipt.blockHash);
+    const first = await state.upstream.send('eth_getBlockByNumber', [toQuantity(row.firstEligibleBlock.number), false]);
+    const previous = await state.upstream.send('eth_getBlockByNumber', [toQuantity(row.previousBlock.number), false]);
+    assert.equal(first.hash, row.firstEligibleBlock.hash);
+    assert.equal(previous.hash, row.previousBlock.hash);
+    assert.equal(first.parentHash, previous.hash);
+    assert.equal(Number(first.number), Number(previous.number) + 1);
+    assert.ok(Number(previous.timestamp) < row.targetTimestamp && Number(first.timestamp) >= row.targetTimestamp);
+    assert.equal(row.hitFirstBlock, false);
+    if (mintedPerRound > 0) {
+      assert.equal(Number(actual.timestamp), row.targetTimestamp, 'The 700 ms offset must still mint inside the correct second.');
+      assert.ok(Number(actual.number) > Number(first.number), 'The fixture must truly miss the first eligible L2 block.');
+      assert.ok(row.blocksAfterFirstEligible > 0);
+    } else {
+      assert.ok(Number(actual.timestamp) >= row.targetTimestamp + 1, 'Expired outcome must match real block time.');
+    }
+    for (const helper of row.batchResult.helpers) {
+      assert.ok(!helpers.has(helper.toLowerCase()));
+      helpers.add(helper.toLowerCase());
+    }
+  }
+  for (const row of route.rounds.slice(count)) {
+    assert.equal(row.attempt, null, 'All rounds following the guard stop must remain unsent.');
+    assert.equal(row.outcome, 'not_sent');
+  }
+  assert.equal(helpers.size, count * mintedPerRound);
+  const nft = new Contract(collection, NFT_ABI, state.upstream);
+  assert.equal(await nft.totalSupply(), BigInt(count * mintedPerRound));
+  assert.equal(await nft.balanceOf(OWNER), BigInt(count * mintedPerRound));
+  if (mintedPerRound) assert.equal(await nft.ownerOf(count * mintedPerRound), OWNER);
+  assert.equal(BigInt(await state.upstream.send('eth_getTransactionCount', [OWNER, 'latest'])), BigInt(count + 3));
+}
+
+async function verifyGuardStop(state, reports) {
+  const preliminary = reports['diagnostics-preliminary.json'];
+  const detailed = reports['diagnostics.json'];
+  assert.equal(preliminary.analysis, 'preliminary', 'Preserve early evidence before post-run RPC analysis.');
+  assert.equal(preliminary.stop.kind, 'THREE_CONSECUTIVE_FAILURES');
+  assert.equal(preliminary.attempts.filter(attempt => attempt !== null).length, 3);
+  assert.equal(preliminary.observations.length, 3);
+  assert.equal(detailed.stop.kind, 'THREE_CONSECUTIVE_FAILURES');
+  assert.equal(detailed.rounds.length, 10, 'The detailed report must be written separately from the preliminary report.');
+  assert.ok(Array.isArray(detailed.findings));
+  for (const round of [0, 1, 2]) {
+    const row = reports['https-sequencer.json'].rounds[round];
+    const finding = detailed.findings.find(item => item.round === round);
+    assert.ok(finding, 'Every confirmed late/expired round needs an explanatory finding.');
+    assert.equal(finding.hash, state.submissions[round + 3].tx.hash);
+    assert.equal(finding.outcome, row.outcome);
+    assert.equal(finding.targetTimestamp, row.targetTimestamp);
+    assert.equal(finding.includedBlockTimestamp, row.includedBlockTimestamp);
+    assert.match(finding.explanation, row.outcome === 'expired' ? /after the target one-second mint window/i : /later L2 block/i);
+  }
+  assert.equal(reports['https-sequencer.json'].stopReason.kind, 'THREE_CONSECUTIVE_FAILURES');
+  assert.equal(reports['wss-rpc-provider.json'], undefined, 'A guard stop must prevent the second transport series.');
+  const second = reports['plan.json'].deployments[1];
+  assert.ok(second, 'This fixture planned both transports.');
+  assert.equal(await state.upstream.getCode(second.collection), '0x', 'No WSS collection may be deployed after stopping HTTPS.');
+  assert.equal(await state.upstream.getCode(second.factory), '0x', 'No WSS factory may be deployed after stopping HTTPS.');
+  const markers = (await readdir(state.lockDir)).filter(file => file.endsWith('.pending.json'));
+  assert.equal(markers.length, 1, 'A stopped series retains its pending marker for reconciliation.');
+  const marker = JSON.parse(await readFile(join(state.lockDir, markers[0]), 'utf8'));
+  assert.equal(marker.reportDirectory, await realpath(state.output));
+}
+
+test('Rust default first-block failure guard stops both transports after three confirmed late full mints', { timeout: 90000 }, async t => {
+  if (!await available(t)) return;
+  const state = await fixture(t);
+  const result = await runCli(t, state, { extra: ['--send-offset-ms', '700'], timeout: 80000 });
+  assert.equal(result.code, 1, `Expected the three-failure stop:\n${result.stderr}\n${result.stdout}`);
+  const reports = await readReports(state);
+  await verifyGuardRoundEvidence(state, reports['https-sequencer.json'], 3, 10, 0);
+  await verifyGuardStop(state, reports);
+  assert.equal(reports['https-sequencer.json'].fullBatches, 3);
+  assert.equal(reports['https-sequencer.json'].firstBlockHits, 0);
+});
+
+test('Rust no-mint failure policy continues ten full HTTPS mints despite missing every first block', { timeout: 110000 }, async t => {
+  if (!await available(t)) return;
+  const state = await fixture(t);
+  const result = await runCli(t, state, { transport: 'https', extra: ['--failure-policy', 'no-mint', '--send-offset-ms', '700'], timeout: 100000 });
+  assert.equal(result.code, 2, `All rounds should complete with missed first-block goals:\n${result.stderr}\n${result.stdout}`);
+  const reports = await readReports(state);
+  const route = reports['https-sequencer.json'];
+  await verifyGuardRoundEvidence(state, route, 10, 10, 0);
+  assert.equal(route.allTransactionsResolved, true);
+  assert.equal(route.fullBatches, 10);
+  assert.equal(route.firstBlockHits, 0);
+  assert.equal(reports['result.json'].completed, true);
+  assert.equal(reports['result.json'].allTenFullBatchesInFirstBlock, false);
+  assert.equal(reports['result.json'].routes.length, 1);
+  assert.equal(reports['diagnostics.json'], undefined, 'Successful no-mint policy must not fabricate an early-stop diagnostic.');
+  assert.equal(reports['diagnostics-preliminary.json'], undefined);
+  assert.equal((await readdir(state.lockDir)).filter(file => file.endsWith('.pending.json')).length, 0);
+});
+
+test('Rust no-mint failure guard stops after three real expired mint outcomes and skips WSS deployment', { timeout: 90000 }, async t => {
+  if (!await available(t)) return;
+  const state = await fixture(t, 'expired-mint-windows');
+  const result = await runCli(t, state, { extra: ['--failure-policy', 'no-mint'], timeout: 80000 });
+  assert.equal(result.code, 1, `Expected the three-empty-mint stop:\n${result.stderr}\n${result.stdout}`);
+  assert.equal(state.faults.length, 1);
+  const reports = await readReports(state);
+  await verifyGuardRoundEvidence(state, reports['https-sequencer.json'], 3, 0, 5);
+  await verifyGuardStop(state, reports);
+  assert.equal(reports['https-sequencer.json'].fullBatches, 0);
+  assert.equal(reports['https-sequencer.json'].firstBlockHits, 0);
 });
 
 test('Rust read-only preflight simulates both routes without reading a key or sending transactions', { timeout: 20000 }, async t => {

@@ -15,6 +15,7 @@ use crate::{
     metrics::{self, Header, Receipt},
     observer::ReceiptWatcher,
     plan::{self, ARM_GAS, DEPLOY_GAS, Deployment, Plan},
+    round_monitor::{MonitorConfig, RoundMonitor},
     rpc::RpcClient,
     signing::{SignedTx, Signer, TxRequest},
 };
@@ -180,7 +181,21 @@ pub async fn execute(
             .save(&format!("{}.json", deployment.mode.label()), &report)
             .await?;
         print_report(&report);
-        let complete = report["allTransactionsResolved"].as_bool() == Some(true);
+        let complete = report["allTransactionsResolved"].as_bool() == Some(true)
+            && report["stopReason"].is_null();
+        if !complete {
+            let diagnostic = json!({"kind":"rust-timed-mint-diagnostics-v1","route":deployment.mode.label(),"wallet":args.wallet,
+                "stop":report["stopReason"],"monitor":report["roundMonitor"],"gasCostWei":report["gasCostWei"],
+                "rounds":report["rounds"],"findings":diagnostic_findings(&report),"nextAction":"Stop all routes. Inspect receipt outcomes, target/included blocks, send jitter and RPC timings before another funded run. Do not clear the pending marker until every prepared hash is reconciled."});
+            journal.save("diagnostics.json", &diagnostic).await?;
+            journal
+                .append(json!({"type":"diagnostic_stop","diagnostic":diagnostic}))
+                .await?;
+            println!(
+                "Stopped for diagnosis: {}. No next route will start. See diagnostics.json and journal.jsonl.",
+                report["stopReason"]
+            );
+        }
         results.push(report);
         ensure!(
             complete,
@@ -356,7 +371,21 @@ async fn run_route(
             .is_some_and(|v| v < start_time * 1000),
         "Preparation missed the safety lead; no timed transactions sent"
     );
-    let watcher = ReceiptWatcher::start(&args.read_rpc, timeout).await?;
+    let mut watcher = ReceiptWatcher::start(&args.read_rpc, timeout).await?;
+    let monitor = RoundMonitor::start(
+        &args.read_rpc,
+        watcher.take_updates()?,
+        MonitorConfig {
+            factory: deployment.factory,
+            collection: deployment.nft,
+            recipient: args.wallet,
+            quantity: args.quantity,
+            start_time,
+            hashes: signed.iter().map(|tx| tx.hash).collect(),
+            policy: args.failure_policy,
+        },
+    )
+    .await?;
     let anchor_wall = plan::wall_ms()?;
     let anchor_instant = Instant::now();
     let first_deadline = anchor_instant
@@ -377,9 +406,23 @@ async fn run_route(
     );
     let mut attempts = vec![Value::Null; ROUNDS as usize];
     let mut send_failed = false;
+    let mut stop_reason = None;
     for round in 0..ROUNDS {
         let deadline = first_deadline + Duration::from_secs(round);
         sleep_until(deadline).await;
+        let feedback = monitor.snapshot();
+        if let Some(reason) = feedback.stop {
+            execution.journal.append(json!({"type":"consecutive_failure_stop","route":deployment.mode.label(),"beforeRound":round,"reason":reason})).await?;
+            stop_reason = Some(reason);
+            break;
+        }
+        if (round as usize).saturating_sub(feedback.evaluated_prefix) >= 3 {
+            let reason = json!({"kind":"FEEDBACK_LAG","sentRounds":round,"evaluatedPrefix":feedback.evaluated_prefix,
+                "explanation":"Three prior rounds have no complete ordered classification; stop instead of sending further without feedback. These are unknown outcomes, not three proven failed mints."});
+            execution.journal.append(json!({"type":"feedback_lag_stop","route":deployment.mode.label(),"reason":reason})).await?;
+            stop_reason = Some(reason);
+            break;
+        }
         let now = Instant::now();
         let target = start_time + round;
         let send_wall = plan::wall_ms()?;
@@ -414,6 +457,30 @@ async fn run_route(
         - anchor_instant.elapsed().as_secs_f64() * 1000.0;
     let observations = watcher.finish().await?;
     execution.journal.append(json!({"type":"receipt_observations","route":deployment.mode.label(),"observations":observations})).await?;
+    let monitor_result = monitor.finish().await?;
+    if stop_reason.is_none() {
+        stop_reason = monitor_result.stop.clone();
+    }
+    if stop_reason.is_none() && send_failed {
+        stop_reason = Some(
+            json!({"kind":"SEND_OR_CLOCK_FAILURE","explanation":"See the timed_send, clock_changed or missed_send_deadline record; an uncertain send must be reconciled before retrying."}),
+        );
+    }
+    execution.journal.append(json!({"type":"round_monitor_result","route":deployment.mode.label(),"monitor":monitor_result,"stopReason":stop_reason})).await?;
+    if let Some(reason) = &stop_reason {
+        // Save evidence before further RPC-based analysis: a reader failure
+        // must not erase the already established reason to stop.
+        execution.journal.save("diagnostics-preliminary.json", &json!({
+            "kind":"rust-timed-mint-diagnostics-v1","analysis":"preliminary",
+            "route":deployment.mode.label(),"wallet":args.wallet,"stop":reason,
+            "monitor":monitor_result,"attempts":attempts,"observations":observations,
+            "nextAction":"No further sends. Reconcile all prepared hashes using journal.jsonl; detailed receipt and block analysis follows if the read RPC remains available."
+        })).await?;
+        println!(
+            "Further sends stopped: {}. Collecting receipt and block diagnostics.",
+            reason
+        );
+    }
     let mut headers = BTreeMap::from([(anchor.number, anchor.clone())]);
     let latest = plan::header(execution.reader, json!("latest")).await?;
     ensure!(
@@ -527,7 +594,7 @@ async fn run_route(
     Ok(
         json!({"kind":"rust-timed-mint-route-v1","route":deployment.mode.label(),"runId":deployment.run_id,"collection":deployment.nft,"factory":deployment.factory,
         "senderHost":args.sender_host(deployment.mode)?,"uniqueHelpers":all_helpers.len(),"startTimestamp":start_time,"rounds":rows,"fullBatches":full_batches,"firstBlockHits":hits,"allTransactionsResolved":all_resolved,
-        "allTenFullBatchesInFirstBlock":hits==10&&full_batches==10&&all_resolved&&clock_valid,"unknownOutcomes":rows.iter().filter(|r| r["minted"].is_null()).count(),"gasCostWei":cost.to_string(),"clockDriftMs":drift,"clockValid":clock_valid,
+        "allTenFullBatchesInFirstBlock":hits==10&&full_batches==10&&all_resolved&&clock_valid&&stop_reason.is_none(),"stopReason":stop_reason,"roundMonitor":monitor_result,"unknownOutcomes":rows.iter().filter(|r| r["minted"].is_null()).count(),"gasCostWei":cost.to_string(),"clockDriftMs":drift,"clockValid":clock_valid,
         "rpcAck":metrics::latency_summary(&ack_ms),"receiptObserved":metrics::latency_summary(&receipt_ms),"setupReceipts":setup_receipts,
         "receiptObservationNote":"First RPC-visible receipt; includes polling and provider propagation, not exact execution latency.","canonicalityNote":"Observed unfinalized branch snapshot; a shallow reorg after a header was read can change inclusion."}),
     )
@@ -600,4 +667,48 @@ fn print_report(report: &Value) {
     }
     println!("RPC ack ms: {}", report["rpcAck"]);
     println!("RPC-visible receipt ms: {}", report["receiptObserved"]);
+}
+
+fn diagnostic_findings(report: &Value) -> Vec<Value> {
+    let mut findings = Vec::new();
+    if let Some(rows) = report["rounds"].as_array() {
+        for row in rows.iter().filter(|row| !row["attempt"].is_null()) {
+            let explanation = match row["outcome"].as_str() {
+                Some("expired") => {
+                    Some("Contract executed after the target one-second mint window.")
+                }
+                Some("too_early") => {
+                    Some("Contract executed before the target mint window opened.")
+                }
+                Some("partial" | "sold_out") => Some(
+                    "The collection did not have enough remaining supply for the full requested batch.",
+                ),
+                Some("reverted") => Some(
+                    "Receipt confirms an execution revert. Its exact cause requires execution tracing; a gas or network cause is not established by this receipt alone.",
+                ),
+                Some("receipt_unresolved") => Some(
+                    "No validated receipt was available. Acceptance, mint outcome and exact execution time remain unknown.",
+                ),
+                _ if row["minted"].as_u64().is_some_and(|n| n > 0)
+                    && row["blocksAfterFirstEligible"]
+                        .as_i64()
+                        .is_some_and(|n| n > 0) =>
+                {
+                    Some(
+                        "NFTs were minted in a later L2 block. Compare target/send times and RPC acknowledgement; the report alone cannot locate the network or sequencer delay.",
+                    )
+                }
+                _ => None,
+            };
+            if let Some(explanation) = explanation {
+                findings.push(json!({"round":row["round"],"hash":row["hash"],"outcome":row["outcome"],"explanation":explanation,
+                    "targetTimestamp":row["targetTimestamp"],"includedBlockTimestamp":row["includedBlockTimestamp"],
+                    "sendJitterMs":row["attempt"]["sendJitterMs"],"rpcAckMs":row["attempt"]["rpcAckMs"]}));
+            }
+        }
+    }
+    if report["stopReason"]["kind"] == "FEEDBACK_LAG" {
+        findings.push(json!({"explanation":"Receipt/header feedback fell behind three submitted rounds. This is an observation backlog, not proof of three failed mints."}));
+    }
+    findings
 }

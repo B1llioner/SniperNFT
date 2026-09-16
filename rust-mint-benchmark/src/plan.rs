@@ -363,7 +363,7 @@ impl Plan {
         json!({"kind":"rust-timed-mint-plan-v1","clock":self.clock,"chainId":CHAIN_ID,"wallet":args.wallet,"routes":args.transport.routes().iter().map(|m|m.label()).collect::<Vec<_>>(),
             "roundsPerRoute":ROUNDS,"nftsPerRoundMaximum":args.quantity,"balanceWei":self.balance.to_string(),"maxFeePerGasWei":self.fee.to_string(),
             "maximumGasCostWei":self.maximum_cost.to_string(),"budgetEth":args.max_total_cost_eth,
-            "reserveEth":args.reserve_eth,"batchGasLimit":args.batch_gas_limit,
+            "reserveEth":args.reserve_eth,"batchGasLimit":args.batch_gas_limit,"consecutiveFailureLimit":3,"failurePolicy":args.failure_policy,
             "deployments":self.deployments.iter().map(|d|json!({"route":d.mode.label(),"runId":d.run_id,"nonce":d.nonce,"collection":d.nft,"factory":d.factory,"simulation":d.simulation})).collect::<Vec<_>>()})
     }
 }

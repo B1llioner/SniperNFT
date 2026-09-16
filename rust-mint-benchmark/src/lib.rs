@@ -6,6 +6,7 @@ pub mod journal;
 pub mod metrics;
 pub mod observer;
 pub mod plan;
+pub mod round_monitor;
 pub mod rpc;
 pub mod run;
 pub mod signing;

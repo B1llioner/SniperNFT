@@ -43,6 +43,10 @@ pub enum ObserverError {
     InvalidStart,
     #[error("RECEIPT_OBSERVER_TASK_FAILED")]
     TaskFailed,
+    #[error("RECEIPT_OBSERVER_UPDATES_ALREADY_TAKEN")]
+    UpdatesAlreadyTaken,
+    #[error("RECEIPT_OBSERVER_UPDATES_CAPACITY_INVARIANT")]
+    UpdatesOverflow,
     #[error("RECEIPT_OBSERVER_CONNECT: {0}")]
     Connect(#[from] RpcError),
 }
@@ -78,7 +82,7 @@ impl From<RpcError> for ObservationError {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Observation {
     pub hash: B256,
@@ -113,7 +117,8 @@ impl Watch {
 /// including when the future returned by `finish` is itself cancelled.
 pub struct ReceiptWatcher {
     sender: Option<mpsc::Sender<Watch>>,
-    task: Option<JoinHandle<Vec<Observation>>>,
+    updates: Option<mpsc::Receiver<Observation>>,
+    task: Option<JoinHandle<Result<Vec<Observation>, ObserverError>>>,
     registered: Mutex<HashSet<B256>>,
     receipt_timeout: Duration,
 }
@@ -139,13 +144,27 @@ impl ReceiptWatcher {
         }
         let client = RpcClient::connect(read_url, RPC_TIMEOUT).await?;
         let (sender, receiver) = mpsc::channel(CAPACITY);
-        let task = tokio::spawn(observe(client, receiver, interval));
+        let (updates_sender, updates) = mpsc::channel(CAPACITY);
+        let task = tokio::spawn(observe(client, receiver, updates_sender, interval));
         Ok(Self {
             sender: Some(sender),
+            updates: Some(updates),
             task: Some(task),
             registered: Mutex::new(HashSet::with_capacity(CAPACITY)),
             receipt_timeout,
         })
+    }
+
+    /// Take the single terminal-update receiver. Updates arrive in completion
+    /// order, once per accepted hash, and include both receipts and errors.
+    /// The ten-item buffer holds the entire window, so leaving this receiver
+    /// untaken or unread never stalls receipt polling. Dropping or closing the
+    /// receiver intentionally opts out of updates; `finish` still collects all
+    /// results in registration order. This method may only be called once.
+    pub fn take_updates(&mut self) -> Result<mpsc::Receiver<Observation>, ObserverError> {
+        self.updates
+            .take()
+            .ok_or(ObserverError::UpdatesAlreadyTaken)
     }
 
     /// Register just before or immediately after submitting the signed bytes.
@@ -198,7 +217,7 @@ impl ReceiptWatcher {
             .await
             .map_err(|_| ObserverError::TaskFailed);
         drop(self.task.take());
-        result
+        result?
     }
 }
 
@@ -213,8 +232,9 @@ impl Drop for ReceiptWatcher {
 async fn observe(
     mut client: RpcClient,
     mut receiver: mpsc::Receiver<Watch>,
+    updates: mpsc::Sender<Observation>,
     interval: Duration,
-) -> Vec<Observation> {
+) -> Result<Vec<Observation>, ObserverError> {
     let mut pending = VecDeque::<Watch>::with_capacity(CAPACITY);
     let mut observations = Vec::with_capacity(CAPACITY);
     let mut input_closed = false;
@@ -225,14 +245,20 @@ async fn observe(
         }
         input_closed |= receiver.is_closed();
         let now = Instant::now();
-        pending.retain(|watch| {
+        for _ in 0..pending.len() {
+            let Some(watch) = pending.pop_front() else {
+                break;
+            };
             if watch.deadline <= now {
-                observations.push(watch.failure(ObservationError::ReceiptTimeout));
-                false
+                record(
+                    &mut observations,
+                    &updates,
+                    watch.failure(ObservationError::ReceiptTimeout),
+                )?;
             } else {
-                true
+                pending.push_back(watch);
             }
-        });
+        }
         if pending.is_empty() {
             if input_closed {
                 break;
@@ -288,10 +314,14 @@ async fn observe(
                         Err(_) => watch.failure(ObservationError::InvalidReceipt),
                     }
                 };
-                observations.push(observation);
+                record(&mut observations, &updates, observation)?;
             }
             Ok(Err(RpcError::Remote { code })) => {
-                observations.push(watch.failure(ObservationError::RpcRemote { code }));
+                record(
+                    &mut observations,
+                    &updates,
+                    watch.failure(ObservationError::RpcRemote { code }),
+                )?;
             }
             failure => {
                 let error = match failure {
@@ -299,7 +329,7 @@ async fn observe(
                     Ok(Err(error)) => ObservationError::from(error),
                     Ok(Ok(_)) => ObservationError::RpcProtocol,
                 };
-                observations.push(watch.failure(error));
+                record(&mut observations, &updates, watch.failure(error))?;
                 // Timeout cancellation and transport/protocol failures poison
                 // RpcClient. Stop here; never silently reconnect or report
                 // queued watches as observed. Closing first prevents new input.
@@ -308,21 +338,45 @@ async fn observe(
                     pending.push_back(watch);
                 }
                 for watch in pending.drain(..) {
-                    observations.push(watch.failure(if watch.deadline <= Instant::now() {
-                        ObservationError::ReceiptTimeout
-                    } else {
-                        ObservationError::ObserverStopped
-                    }));
+                    record(
+                        &mut observations,
+                        &updates,
+                        watch.failure(if watch.deadline <= Instant::now() {
+                            ObservationError::ReceiptTimeout
+                        } else {
+                            ObservationError::ObserverStopped
+                        }),
+                    )?;
                 }
                 break;
             }
         }
     }
     observations.sort_by_key(|(order, _)| *order);
-    observations
+    Ok(observations
         .into_iter()
         .map(|(_, observation)| observation)
-        .collect()
+        .collect())
+}
+
+fn record(
+    observations: &mut Vec<(usize, Observation)>,
+    updates: &mpsc::Sender<Observation>,
+    observation: (usize, Observation),
+) -> Result<(), ObserverError> {
+    match updates.try_send(observation.1.clone()) {
+        Ok(()) => {}
+        // The consumer may intentionally stop listening; final collection is
+        // independent and must continue without backpressure from that choice.
+        Err(mpsc::error::TrySendError::Closed(_)) => {}
+        // Every accepted hash produces exactly one terminal update, and both
+        // lifetime registrations and channel capacity are capped at ten. A full
+        // channel therefore signals a programming invariant failure: surface it
+        // through finish instead of silently losing feedback or blocking here.
+        Err(mpsc::error::TrySendError::Full(_)) => return Err(ObserverError::UpdatesOverflow),
+    }
+    observations.push(observation);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -404,10 +458,30 @@ mod tests {
             }
             seen
         });
-        let watcher = watcher(address, Duration::from_secs(1)).await;
+        let mut watcher = watcher(address, Duration::from_secs(1)).await;
+        let mut updates = watcher.take_updates().unwrap();
+        assert!(matches!(
+            watcher.take_updates(),
+            Err(ObserverError::UpdatesAlreadyTaken)
+        ));
         let started = Instant::now();
         watcher.watch(first, started).unwrap();
         watcher.watch(second, started).unwrap();
+        // Observe completion without closing registration or invoking finish.
+        // The first hash deliberately needs an extra poll and finishes second.
+        let second_update = tokio::time::timeout(Duration::from_secs(1), updates.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second_update.hash, second);
+        assert!(second_update.error.is_none());
+        assert!(second_update.receipt.as_ref().unwrap().success);
+        assert!(!watcher.task.as_ref().unwrap().is_finished());
+        let first_update = tokio::time::timeout(Duration::from_secs(1), updates.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_update.hash, first);
         let observations = tokio::time::timeout(Duration::from_secs(2), watcher.finish())
             .await
             .unwrap()
@@ -428,6 +502,11 @@ mod tests {
             observations[0].observed_after_send_ms.unwrap()
                 >= observations[1].observed_after_send_ms.unwrap()
         );
+        assert_eq!(
+            serde_json::to_value(&observations).unwrap(),
+            serde_json::to_value([first_update, second_update]).unwrap()
+        );
+        assert!(updates.recv().await.is_none());
         assert_eq!(server.await.unwrap(), vec![first, second, first]);
     }
 
@@ -475,7 +554,8 @@ mod tests {
             let _call = request(&mut reader).await.unwrap();
             reply(&mut reader, json!({"jsonrpc":"2.0","id":999,"result":null})).await;
         });
-        let watcher = watcher(address, Duration::from_secs(1)).await;
+        let mut watcher = watcher(address, Duration::from_secs(1)).await;
+        let mut updates = watcher.take_updates().unwrap();
         watcher.watch(B256::repeat_byte(1), Instant::now()).unwrap();
         watcher.watch(B256::repeat_byte(2), Instant::now()).unwrap();
         tokio::time::timeout(Duration::from_millis(500), async {
@@ -489,7 +569,18 @@ mod tests {
             watcher.watch(B256::repeat_byte(3), Instant::now()),
             Err(ObserverError::Closed)
         ));
+        let mut feedback = Vec::new();
+        while let Some(update) = updates.recv().await {
+            feedback.push(update);
+        }
+        assert_eq!(feedback.len(), 2);
+        assert_eq!(feedback[0].error, Some(ObservationError::RpcProtocol));
+        assert_eq!(feedback[1].error, Some(ObservationError::ObserverStopped));
         let observations = watcher.finish().await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&feedback).unwrap(),
+            serde_json::to_value(&observations).unwrap()
+        );
         assert_eq!(observations.len(), 2);
         assert_eq!(observations[0].error, Some(ObservationError::RpcProtocol));
         assert_eq!(
@@ -567,6 +658,95 @@ mod tests {
             Err(ObserverError::InvalidStart)
         ));
         drop(watcher);
+    }
+
+    #[tokio::test]
+    async fn unread_updates_hold_all_ten_timeouts_and_can_be_taken_later() {
+        let mut watcher = ReceiptWatcher::start("http://127.0.0.1:1", Duration::from_secs(1))
+            .await
+            .unwrap();
+        let expired = Instant::now().checked_sub(Duration::from_secs(2)).unwrap();
+        for number in 1..=CAPACITY {
+            watcher
+                .watch(B256::repeat_byte(number as u8), expired)
+                .unwrap();
+        }
+        assert!(matches!(
+            watcher.watch(B256::repeat_byte(11), expired),
+            Err(ObserverError::Capacity)
+        ));
+        // No consumer has taken the update channel, yet every watch terminates
+        // without blocking or making a request to the unavailable endpoint.
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while watcher.updates.as_ref().unwrap().len() != CAPACITY {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let mut updates = watcher.take_updates().unwrap();
+        let observations = watcher.finish().await.unwrap();
+        let mut feedback = Vec::new();
+        while let Some(update) = updates.recv().await {
+            assert_eq!(update.error, Some(ObservationError::ReceiptTimeout));
+            assert!(update.receipt.is_none());
+            assert!(update.observed_after_send_ms.is_none());
+            feedback.push(update);
+        }
+        assert_eq!(feedback.len(), CAPACITY);
+        assert_eq!(
+            serde_json::to_value(feedback).unwrap(),
+            serde_json::to_value(observations).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn closing_update_consumer_does_not_change_final_results() {
+        let mut watcher = ReceiptWatcher::start("http://127.0.0.1:1", Duration::from_secs(1))
+            .await
+            .unwrap();
+        let mut updates = watcher.take_updates().unwrap();
+        updates.close();
+        let expired = Instant::now().checked_sub(Duration::from_secs(2)).unwrap();
+        watcher.watch(B256::repeat_byte(1), expired).unwrap();
+        let observations = watcher.finish().await.unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].hash, B256::repeat_byte(1));
+        assert_eq!(
+            observations[0].error,
+            Some(ObservationError::ReceiptTimeout)
+        );
+        assert!(updates.recv().await.is_none());
+    }
+
+    #[test]
+    fn impossible_full_update_channel_is_an_explicit_error() {
+        // Deliberately violate the production invariant by using capacity one
+        // for two accepted terminal events. This must neither wait nor succeed.
+        let (sender, mut receiver) = mpsc::channel(1);
+        let mut observations = Vec::new();
+        let failed = |number: u8| {
+            (
+                usize::from(number),
+                Observation {
+                    hash: B256::repeat_byte(number),
+                    receipt: None,
+                    observed_after_send_ms: None,
+                    error: Some(ObservationError::ReceiptTimeout),
+                },
+            )
+        };
+        record(&mut observations, &sender, failed(1)).unwrap();
+        assert!(matches!(
+            record(&mut observations, &sender, failed(2)),
+            Err(ObserverError::UpdatesOverflow)
+        ));
+        assert_eq!(observations.len(), 1);
+        assert_eq!(receiver.try_recv().unwrap().hash, B256::repeat_byte(1));
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
     }
 
     #[tokio::test]

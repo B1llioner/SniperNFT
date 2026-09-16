@@ -74,6 +74,9 @@ pub struct Args {
     pub batch_gas_limit: u64,
     #[arg(long, default_value_t = 30)]
     pub receipt_timeout_seconds: u64,
+    /// Stop after three consecutive rounds that fail this criterion.
+    #[arg(long, value_enum, default_value = "first-block")]
+    pub failure_policy: crate::round_monitor::FailurePolicy,
     /// Only for isolated loopback integration tests with synthetic keys.
     #[arg(long, hide = true)]
     pub test_key_stdin: bool,
