@@ -1,0 +1,195 @@
+{
+  "kind": "genesis-readonly-owner-mutability-probe-v1",
+  "observedAt": "2026-09-16T20:04:56.291Z",
+  "nft": "0x116eaa62241751e0c98da43d458600c6c17cd361",
+  "unrelatedSender": "0x000000000000000000000000000000000000dEaD",
+  "transactionsSent": 0,
+  "privateKeysUsed": false,
+  "simulationEffectsPersisted": false,
+  "probes": [
+    {
+      "endpoint": "https://rpc.mainnet.chain.robinhood.com",
+      "calls": [
+        {
+          "id": 1,
+          "method": "eth_chainId"
+        },
+        {
+          "id": 2,
+          "method": "eth_getBlockByNumber"
+        },
+        {
+          "id": 3,
+          "method": "eth_call"
+        },
+        {
+          "id": 4,
+          "method": "eth_getCode"
+        },
+        {
+          "id": 5,
+          "method": "eth_getCode"
+        },
+        {
+          "id": 6,
+          "method": "eth_getCode"
+        },
+        {
+          "id": 7,
+          "method": "eth_call"
+        },
+        {
+          "id": 8,
+          "method": "eth_call"
+        },
+        {
+          "id": 9,
+          "method": "eth_call"
+        },
+        {
+          "id": 10,
+          "method": "eth_call"
+        },
+        {
+          "id": 11,
+          "method": "eth_getBlockByNumber"
+        },
+        {
+          "id": 12,
+          "method": "eth_call"
+        }
+      ],
+      "chainId": "0x1237",
+      "block": {
+        "number": "0x3dc79af",
+        "hash": "0x217e7d76b39142c644c663c6a94c58a12e305bfd4c87f46e1b92ce5756d28ab8",
+        "timestamp": "0x6aaaf667",
+        "utc": "2026-09-16T20:04:55.000Z"
+      },
+      "owner": "0x1EcBF27dC1F809179B9ef2d382cd76ccBa21B6d2",
+      "ownerCodeBytes": 0,
+      "unrelatedCodeBytes": 0,
+      "runtimeHash": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+      "allowedBefore": [
+        "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5"
+      ],
+      "simulatedUpdateCalldata": "0x60c308b600000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "fromOwner": {
+        "result": "0x"
+      },
+      "fromUnrelated": {
+        "error": {
+          "code": 3,
+          "message": "execution reverted",
+          "data": "0x118cdaa7000000000000000000000000000000000000000000000000000000000000dead"
+        }
+      },
+      "allowedAfterSameBlock": [
+        "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5"
+      ],
+      "afterBlock": {
+        "number": "0x3dc79cd",
+        "hash": "0xf6bee023e8af99d7e08a44ad81e2b595e06578c8446ce4ee8928cb071bcf703a"
+      },
+      "allowedAfterRealLatest": [
+        "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5"
+      ],
+      "virtualOwnerCallSucceeded": true,
+      "unrelatedCallReverted": true,
+      "sameBlockStateUnchanged": true,
+      "latestListUnchanged": true
+    },
+    {
+      "endpoint": "https://robinhood-rpc.publicnode.com",
+      "calls": [
+        {
+          "id": 1,
+          "method": "eth_chainId"
+        },
+        {
+          "id": 2,
+          "method": "eth_getBlockByNumber"
+        },
+        {
+          "id": 3,
+          "method": "eth_call"
+        },
+        {
+          "id": 4,
+          "method": "eth_getCode"
+        },
+        {
+          "id": 5,
+          "method": "eth_getCode"
+        },
+        {
+          "id": 6,
+          "method": "eth_getCode"
+        },
+        {
+          "id": 7,
+          "method": "eth_call"
+        },
+        {
+          "id": 8,
+          "method": "eth_call"
+        },
+        {
+          "id": 9,
+          "method": "eth_call"
+        },
+        {
+          "id": 10,
+          "method": "eth_call"
+        },
+        {
+          "id": 11,
+          "method": "eth_getBlockByNumber"
+        },
+        {
+          "id": 12,
+          "method": "eth_call"
+        }
+      ],
+      "chainId": "0x1237",
+      "block": {
+        "number": "0x3dc79da",
+        "hash": "0x9162b1f1e9591e46d0a8e902f7232e2c56e1cecfe4a1cbbe67299c85817cf2f4",
+        "timestamp": "0x6aaaf66c",
+        "utc": "2026-09-16T20:05:00.000Z"
+      },
+      "owner": "0x1EcBF27dC1F809179B9ef2d382cd76ccBa21B6d2",
+      "ownerCodeBytes": 0,
+      "unrelatedCodeBytes": 0,
+      "runtimeHash": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+      "allowedBefore": [
+        "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5"
+      ],
+      "simulatedUpdateCalldata": "0x60c308b600000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "fromOwner": {
+        "result": "0x"
+      },
+      "fromUnrelated": {
+        "error": {
+          "code": 3,
+          "message": "execution reverted",
+          "data": "0x118cdaa7000000000000000000000000000000000000000000000000000000000000dead"
+        }
+      },
+      "allowedAfterSameBlock": [
+        "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5"
+      ],
+      "afterBlock": {
+        "number": "0x3dc79e1",
+        "hash": "0x1a1982787bc845b67366aaee22088fbe4ad3784e9fbc4400ec4015d06e3d3890"
+      },
+      "allowedAfterRealLatest": [
+        "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5"
+      ],
+      "virtualOwnerCallSucceeded": true,
+      "unrelatedCallReverted": true,
+      "sameBlockStateUnchanged": true,
+      "latestListUnchanged": true
+    }
+  ]
+}
