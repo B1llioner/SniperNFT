@@ -305,9 +305,9 @@ impl Config {
             (1..=8).contains(&self.read_concurrency),
             "INVALID_READ_RPC_CONCURRENCY"
         );
-        for endpoint in std::iter::once(&self.read_rpc)
-            .chain(self.send_rpc_urls.iter())
-            .chain(self.watch_rpc.iter())
+        for (endpoint, read_only) in std::iter::once((&self.read_rpc, true))
+            .chain(self.send_rpc_urls.iter().map(|url| (url, false)))
+            .chain(self.watch_rpc.iter().map(|url| (url, true)))
         {
             let url = Url::parse(endpoint).map_err(|_| anyhow::anyhow!("INVALID_RPC_URL"))?;
             ensure!(
@@ -325,7 +325,7 @@ impl Config {
                 if local {
                     loopback_url(endpoint)
                 } else {
-                    matches!(url.scheme(), "https" | "wss")
+                    matches!(url.scheme(), "https" | "wss") || (read_only && loopback_url(endpoint))
                 },
                 "INVALID_RPC_TRANSPORT"
             );
@@ -334,7 +334,7 @@ impl Config {
             crate::watch::validate_endpoint(endpoint)?;
             let url = Url::parse(endpoint).map_err(|_| anyhow::anyhow!("INVALID_WATCH_RPC_URL"))?;
             ensure!(
-                url.scheme() == "wss" || (local && url.scheme() == "ws"),
+                url.scheme() == "wss" || (url.scheme() == "ws" && loopback_url(endpoint)),
                 "WATCH_RPC_REQUIRES_WEBSOCKET"
             );
         }
@@ -453,7 +453,7 @@ mod tests {
         c.validate(false).unwrap();
         for endpoint in [
             "https://robinhood-rpc.publicnode.com",
-            "ws://127.0.0.1:8500",
+            "ws://192.0.2.1:8500",
             "wss://feed.mainnet.chain.robinhood.com",
             "wss://secret@example.invalid",
             "wss://example.invalid/#fragment",
@@ -469,5 +469,40 @@ mod tests {
         c.validate(true).unwrap();
         c.watch_rpc = Some("wss://example.invalid".into());
         assert!(c.validate(true).is_err());
+    }
+    #[test]
+    fn production_local_node_reads_keep_sender_tls_and_mainnet_identity_checks() {
+        let mut c = config();
+        for (reader, watcher) in [
+            ("http://127.0.0.1:8547", "ws://127.0.0.1:8548"),
+            ("http://[::1]:8547", "ws://[::1]:8548"),
+        ] {
+            c.read_rpc = reader.into();
+            c.watch_rpc = Some(watcher.into());
+            c.validate(false).unwrap();
+        }
+        c.send_rpc_urls = vec![c.read_rpc.clone()];
+        assert_eq!(
+            c.validate(false).unwrap_err().to_string(),
+            "INVALID_RPC_TRANSPORT"
+        );
+        c.send_rpc_urls = senders();
+        for reader in [
+            "http://192.0.2.1:8547",
+            "http://localhost:8547",
+            "http://127.0.0.1.evil.example",
+        ] {
+            c.read_rpc = reader.into();
+            assert_eq!(
+                c.validate(false).unwrap_err().to_string(),
+                "INVALID_RPC_TRANSPORT"
+            );
+        }
+        c.read_rpc = "http://127.0.0.1:8547".into();
+        c.nft = Address::repeat_byte(7);
+        assert_eq!(
+            c.validate(false).unwrap_err().to_string(),
+            "UNRESEARCHED_COLLECTION_REQUIRES_LOCAL_TEST"
+        );
     }
 }
