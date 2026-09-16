@@ -1,0 +1,91 @@
+{
+  "kind": "independent-review-source-snapshot-v1",
+  "recordedAt": "2026-09-16T07:51:23.130341+00:00",
+  "verification": "Independent source/fix review complete. Owner reports 46 Rust unit tests, format, Clippy -D warnings, debug build passed; all 13 local EVM cases passed across final suite and targeted rerun after a macOS realpath-only fixture fix. No paid mainnet transaction run.",
+  "files": [
+    {
+      "path": "artifacts/timed-benchmark.json",
+      "sha256": "76c53d4fd21f095d6620449287e89f61b8ac9303c6a0db8fcdfcf35f13ff8b11"
+    },
+    {
+      "path": "contracts/TimedBenchmarkBatchMinter.sol",
+      "sha256": "f8d7f0c526c19f43d77b299b7b1243384fd341afdfe22b6642c02018ac5dfb9a"
+    },
+    {
+      "path": "contracts/TimedBenchmarkNFT.sol",
+      "sha256": "f6df76ab97f0e4f45999ddff0d7bc342f32dcfa6cd1ade1cf29c1efb337b0017"
+    },
+    {
+      "path": "rust-mint-benchmark/Cargo.lock",
+      "sha256": "3ecc81faa8851844979fd177bc55b6874997f0dfc992db4467a7710cc8e69ac9"
+    },
+    {
+      "path": "rust-mint-benchmark/Cargo.toml",
+      "sha256": "9d3fbb38a1625a3e464746594b590a73ed1c1e7b211d5949dba95d36bd50a454"
+    },
+    {
+      "path": "rust-mint-benchmark/src/artifact.rs",
+      "sha256": "5cec0d6b817b8bf9d753e50e8c7092df19c3c15a52bb42d5d77c36e30ada3efd"
+    },
+    {
+      "path": "rust-mint-benchmark/src/clock_check.rs",
+      "sha256": "d1ebcc47fd46d4ad53a5381daf2ea771b1300d7d9ba9622584807638c85961ad"
+    },
+    {
+      "path": "rust-mint-benchmark/src/config.rs",
+      "sha256": "d386a4ee8f20f78bdd057522ffe0fea40cb12a9a251cd49e58bfd1a2ee714847"
+    },
+    {
+      "path": "rust-mint-benchmark/src/eth.rs",
+      "sha256": "b5bc67ce0de0ec531e0fc80ff42e0b23c300fca021b24a012fa7ba1af8b940c6"
+    },
+    {
+      "path": "rust-mint-benchmark/src/journal.rs",
+      "sha256": "5d7b6a7ec77b0a30c986cb3361d65216c3593a9fd1d0fbaee994f78adc8e5ec8"
+    },
+    {
+      "path": "rust-mint-benchmark/src/lib.rs",
+      "sha256": "1d24b5085ec3f5a649a7055f3fc1ebab8a00418c0980adba24f410c87d755a5c"
+    },
+    {
+      "path": "rust-mint-benchmark/src/main.rs",
+      "sha256": "ef888209f5fa60ec286666dc6803a9fb67f1e941b785e2a23a4a443b4dc90a17"
+    },
+    {
+      "path": "rust-mint-benchmark/src/metrics.rs",
+      "sha256": "86388c9110bec00a9bacfeeff8f63bbfd3f606bb51fcb0a1579a735a1ba5be28"
+    },
+    {
+      "path": "rust-mint-benchmark/src/observer.rs",
+      "sha256": "752faa7c99e14d6ffea534d3734bc7f24d11966d3afa90f5edb935286a4fd5be"
+    },
+    {
+      "path": "rust-mint-benchmark/src/plan.rs",
+      "sha256": "e6cf4794dd4ff9cedf962e5641bbbe1ffbc31c00e007c7964a6b7451de8a479b"
+    },
+    {
+      "path": "rust-mint-benchmark/src/rpc.rs",
+      "sha256": "9af76fe7154fa8ce4be1fc161ba1a1ba24fa8133fe68ac6819c173e47c504631"
+    },
+    {
+      "path": "rust-mint-benchmark/src/run.rs",
+      "sha256": "31860da16a56df00ac809ade386eff02fcba436bafe838eb857de3d576c42218"
+    },
+    {
+      "path": "rust-mint-benchmark/src/signing.rs",
+      "sha256": "521b78ad35c5ef52ff733b7675c9c6f3d23ac3bee0d9cd6fca6a42e090967594"
+    },
+    {
+      "path": "scripts/compile-timed-benchmark.mjs",
+      "sha256": "46e260f4738a2732e7704dc9757114230706bf2085be3ca2d0472a4930dc5298"
+    },
+    {
+      "path": "test/rust-timed-mint-evm.test.mjs",
+      "sha256": "e3e3a06cb4e9300696ddc984b1a401a83a909735c48ecba85307d9ea23432f6c"
+    },
+    {
+      "path": "test/timed-benchmark-evm.test.mjs",
+      "sha256": "4539564fe3ddba8f8b4298c7f192db929fd434fcb2f043fecc4acf41d5ca96ee"
+    }
+  ]
+}

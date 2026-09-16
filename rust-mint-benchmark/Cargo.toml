@@ -1,0 +1,40 @@
+[package]
+name = "rust-mint-benchmark"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+alloy-consensus = { version = "=2.1.1", features = ["k256"] }
+alloy-eips = "=2.1.1"
+alloy-primitives = { version = "=1.6.0", features = ["serde", "k256", "rlp"] }
+alloy-signer = "=2.1.1"
+alloy-signer-local = "=2.1.1"
+anyhow = "1"
+clap = { version = "4.5", features = ["derive"] }
+fs2 = "0.4"
+futures-util = { version = "0.3", features = ["sink"] }
+getrandom = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+tokio = { version = "1.44", features = ["rt", "macros", "net", "time", "signal", "io-util", "fs", "sync", "process"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+url = "2"
+zeroize = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,19 @@
+{
+  "observedAt": "2026-09-16T07:12:17.375Z",
+  "endpoint": "wss://robinhood-rpc.publicnode.com",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "eth_sendRawTransaction",
+    "params": []
+  },
+  "scope": "Method-dispatch check with zero params; no raw transaction, signature or wallet used. No transaction can be submitted by this request.",
+  "response": {
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32600,
+      "message": "missing required transaction hash parameter"
+    },
+    "id": 1
+  }
+}

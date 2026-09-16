@@ -1,0 +1,26 @@
+{
+  "observedAt": "2026-09-16T07:11:39.783Z",
+  "scope": "eth_call simulation/read only, no deploy or send",
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "block": {
+    "number": "0x3d570f6",
+    "l1BlockNumber": "0x18c8d6b",
+    "timestamp": "0x6aaa4129"
+  },
+  "arbBlockNumber": {
+    "selector": "0xa3b1b31d",
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0000000000000000000000000000000000000000000000000000000003d570f6"
+  },
+  "evmNumber": {
+    "initCode": "0x4360005260206000f3",
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x00000000000000000000000000000000000000000000000000000000018c8d6b"
+  },
+  "sequencerWebsocket": {
+    "httpStatus": 400,
+    "upgraded": false
+  }
+}
