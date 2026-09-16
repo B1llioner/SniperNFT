@@ -101,9 +101,12 @@ async function fixture(t, overrides = {}) {
   const context = { provider, directory, owner, nft, route, fee, signer, apiRequests: [], authRequests: [], submissions: [], calls: [],
     handlerFailures: [], hideReceipt: null, loseMintAck: false, apiStatus: 200, apiHook: null,
     authStatus: 201, authExpiresAt: null, authRateLimits: null, invocations: [], activeInvocation: null,
+    headLag: null, activeHeadLag: null, laggedReceipts: new Set(), sentActions: new Map(),
+    laggedHeads: [], runtimeReads: [], pendingNonceBehindBy: 0, nonceReads: [],
+    factoryRuntimeFault: null, factoryRuntimeFaultReads: 0,
     finalSimulations: [], finalSimulationFault: null };
   const stateRoot = join(directory, 'registry');
-  const statePath = join(stateRoot, `4663-${WALLET.toLowerCase()}`, 'state.json');
+  const statePath = join(stateRoot, `4663-${WALLET}`, 'state.json');
   const rpcServer = createServer(async (req, res) => {
     let rpc;
     try {
@@ -121,6 +124,7 @@ async function fixture(t, overrides = {}) {
         assert.equal(saved.pending.hash, tx.hash, 'Intent must be durable before the network write.');
         assert.equal(saved.pending.nonce, tx.nonce);
         context.submissions.push(tx);
+        context.sentActions.set(tx.hash, saved.pending.action.kind);
         result = await provider.send(rpc.method, rpc.params);
         if (context.loseMintAck && saved.pending.action.kind === 'mint') {
           context.hideReceipt = tx.hash;
@@ -128,6 +132,37 @@ async function fixture(t, overrides = {}) {
         }
       } else if (rpc.method === 'eth_getTransactionReceipt' && rpc.params[0] === context.hideReceipt) result = null;
       else result = await provider.send(rpc.method, rpc.params);
+      if (rpc.method === 'eth_getTransactionReceipt' && result?.status === '0x1' && context.headLag
+        && context.headLag.after === context.sentActions.get(rpc.params[0])
+        && !context.laggedReceipts.has(rpc.params[0])) {
+        context.laggedReceipts.add(rpc.params[0]);
+        const before = toQuantity(BigInt(result.blockNumber) - 1n);
+        context.activeHeadLag = { before: await provider.send('eth_getBlockByNumber', [before, false]),
+          receiptBlock: result.blockNumber, remaining: context.headLag.staleReads };
+      }
+      if (rpc.method === 'eth_getBlockByNumber' && rpc.params[0] === 'latest'
+        && context.activeHeadLag?.remaining > 0) {
+        const lag = context.activeHeadLag;
+        --lag.remaining;
+        result = lag.before;
+        context.laggedHeads.push({ number: result.number, receiptBlock: lag.receiptBlock });
+      }
+      if (rpc.method === 'eth_getTransactionCount' && rpc.params[0].toLowerCase() === WALLET.toLowerCase()) {
+        const actual = result;
+        if (rpc.params[1] === 'pending' && context.pendingNonceBehindBy > 0) {
+          assert.ok(BigInt(result) >= BigInt(context.pendingNonceBehindBy));
+          result = toQuantity(BigInt(result) - BigInt(context.pendingNonceBehindBy));
+        }
+        context.nonceReads.push({ block: rpc.params[1], actual, returned: result });
+      }
+      if (rpc.method === 'eth_getCode') {
+        if (context.factoryRuntimeFault?.address.toLowerCase() === rpc.params[0].toLowerCase()) {
+          result = context.factoryRuntimeFault.code;
+          ++context.factoryRuntimeFaultReads;
+        }
+        context.runtimeReads.push({ address: rpc.params[0], block: rpc.params[1], bytes: (result.length - 2) / 2,
+          receiptFloor: context.activeHeadLag?.receiptBlock ?? null });
+      }
       const call = rpc.params[0];
       if (rpc.method === 'eth_call' && call.gas && call.from?.toLowerCase() === WALLET.toLowerCase()
         && [BATCH_SELECTOR, route.interface.getFunction('mintSigned').selector].includes(call.data?.slice(0, 10))) {
@@ -269,7 +304,7 @@ async function checkedChildrenRemainUnspent(c) {
   assert.equal(c.submissions[1].to.toLowerCase(), saved.factory.toLowerCase());
   assert.equal(c.submissions[1].data.slice(0, 10), PREPARE_SELECTOR);
   assert.equal(await c.provider.getTransactionCount(WALLET), 2);
-  for (const path of [c.statePath, join(c.stateRoot, `4663-${WALLET.toLowerCase()}`, 'events.jsonl')]) {
+  for (const path of [c.statePath, join(c.stateRoot, `4663-${WALLET}`, 'events.jsonl')]) {
     const persisted = await readFile(path, 'utf8');
     assert.ok(!persisted.includes(KEY) && !persisted.includes(API_KEY), 'Credentials must not be persisted.');
   }
@@ -418,6 +453,147 @@ test('Rust CLI check-children rejects quantity one before any API or private-key
     assert.equal(c.submissions.length, 0); assert.equal(c.calls.length, 0);
     assert.equal(await c.provider.getTransactionCount(WALLET), 0);
     assert.equal(await c.nft.total(), 0n);
+  });
+
+for (const action of ['deploy_factory', 'prepare_children']) {
+  test(`Rust CLI check-children waits for a current latest block after confirmed ${action}`,
+    { timeout: 60_000 }, async t => {
+      if (!await available(t)) return;
+      const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+      c.headLag = { after: action, staleReads: 2 };
+      const result = await run(c, 'check-children'); checkedSuccess(result);
+      const { saved } = await checkedChildrenRemainUnspent(c);
+      assert.equal(c.laggedHeads.length, 2, 'Both stale latest replies must be tolerated without using their pre-transaction state.');
+      assert.ok(c.laggedHeads.every(head => BigInt(head.number) < BigInt(head.receiptBlock)));
+      assert.equal(c.submissions.filter(tx => tx.to === null).length, 1, 'Head lag must not trigger another deployment.');
+      assert.equal(c.apiRequests.length, 2); assert.equal(c.finalSimulations.length, 1);
+      assert.ok(result.events.some(event => event.event === 'submission_complete'));
+      const laterFactoryReads = c.runtimeReads.filter(read => read.receiptFloor
+        && read.address.toLowerCase() === saved.factory.toLowerCase());
+      assert.ok(laterFactoryReads.length > 0);
+      assert.ok(laterFactoryReads.every(read => BigInt(read.block) >= BigInt(read.receiptFloor) && read.bytes > 0),
+        'Runtime verification must keep its exact identity check and read at/after the confirmed transaction block.');
+    });
+
+  test(`Rust CLI check-children stops after three persistently stale heads following ${action} without another send`,
+    { timeout: 60_000 }, async t => {
+      if (!await available(t)) return;
+      const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+      c.headLag = { after: action, staleReads: Infinity };
+      const result = await run(c, 'check-children');
+      assert.equal(result.code, 1);
+      assert.equal(c.laggedHeads.length, 3, 'A permanently lagging reader must stop after three failures.');
+      assert.match(result.stderr, /READ_RPC_BEHIND_CONFIRMED_OR_OBSERVED_BLOCK/);
+      assert.doesNotMatch(result.stderr, /FACTORY_RUNTIME_IDENTITY_MISMATCH|CHILD_PREPARATION_INCOMPLETE|panicked/);
+      const saved = await state(c);
+      assert.notEqual(saved.factory, null); assert.equal(saved.pending, null);
+      const expectedSends = action === 'deploy_factory' ? 1 : 2;
+      assert.equal(c.submissions.length, expectedSends);
+      assert.equal(await c.provider.getTransactionCount(WALLET), expectedSends);
+      assert.equal(c.submissions.filter(tx => tx.to === null).length, 1);
+      const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+      assert.equal(await factory.childCount(), action === 'deploy_factory' ? 0n : 2n);
+      for (let index = 0; index < Number(await factory.childCount()); ++index) {
+        const child = new Contract(await factory.children(index), ARTIFACT.contracts.GenesisMintChild.abi, c.provider);
+        assert.equal(await child.spent(), false);
+      }
+      assert.ok(BigInt(saved.gas_cost_wei) > 0n, 'Confirmed preparation cost must stay durable despite reader lag.');
+      assert.equal(c.apiRequests.length, 0); assert.equal(c.finalSimulations.length, 0);
+      assert.equal(await c.nft.total(), 0n);
+      assert.ok(!result.events.some(event => event.event === 'child_check_result' && event.passed));
+    });
+}
+
+test('Rust CLI check-children preserves the confirmed read-block floor across process restarts',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    checkedSuccess(await run(c, 'check-children'));
+    const before = await state(c);
+    assert.ok(Number.isSafeInteger(before.last_receipt_block) && before.last_receipt_block > 0);
+    c.activeHeadLag = {
+      before: await c.provider.send('eth_getBlockByNumber', [toQuantity(before.last_receipt_block - 1), false]),
+      receiptBlock: toQuantity(before.last_receipt_block), remaining: Infinity,
+    };
+    const result = await run(c, 'check-children');
+    assert.equal(result.code, 1); assert.match(result.stderr, /READ_RPC_BEHIND_CONFIRMED_OR_OBSERVED_BLOCK/);
+    assert.equal(c.laggedHeads.length, 3);
+    assert.equal(result.privateKeyProvided, false, 'Restart must reject a lagging read before API/key input or preparation.');
+    assert.equal(c.authRequests.length, 1); assert.equal(c.apiRequests.length, 2);
+    const after = await state(c);
+    assert.equal(after.last_receipt_block, before.last_receipt_block);
+    assert.equal(after.factory, before.factory); assert.equal(after.pending, null);
+    await checkedChildrenRemainUnspent(c);
+  });
+
+test('Rust CLI resumes a legacy factory-only registry without last_receipt_block and deploys no second factory',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    // Produce the real interrupted-mainnet shape: deployed factory, no children,
+    // accounted gas, cleared pending; then remove only the newly added field.
+    c.headLag = { after: 'deploy_factory', staleReads: Infinity };
+    const initial = await run(c, 'prepare');
+    assert.equal(initial.code, 1); assert.match(initial.stderr, /READ_RPC_BEHIND_CONFIRMED_OR_OBSERVED_BLOCK/);
+    const legacy = await state(c);
+    assert.notEqual(legacy.factory, null); assert.equal(legacy.pending, null);
+    assert.ok(Number.isSafeInteger(legacy.last_receipt_block));
+    assert.equal(c.submissions.length, 1);
+    const factory = new Contract(legacy.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    assert.equal(await factory.childCount(), 0n);
+    delete legacy.last_receipt_block;
+    await writeFile(c.statePath, JSON.stringify(legacy), { mode: 0o600 });
+    c.headLag = null; c.activeHeadLag = null;
+    checkedSuccess(await run(c, 'check-children'));
+    const { saved } = await checkedChildrenRemainUnspent(c);
+    assert.equal(saved.factory, legacy.factory);
+    assert.ok(Number.isSafeInteger(saved.last_receipt_block), 'The new preparation receipt should populate the optional floor.');
+    assert.equal(c.submissions.filter(tx => tx.to === null).length, 1);
+    assert.equal(c.apiRequests.length, 2); assert.equal(c.finalSimulations.length, 1);
+  });
+
+test('Rust CLI refuses a stale pending nonce below the confirmed nonce without preparing more children',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    success(await run(c, 'prepare'));
+    const before = await state(c), priorNonceReads = c.nonceReads.length;
+    c.pendingNonceBehindBy = 1;
+    const result = await run(c, 'prepare', { quantity: 3 });
+    assert.equal(result.code, 1); assert.match(result.stderr, /PENDING_NONCE|NONCE.*CONFIRMED|NONCE.*BEHIND/);
+    const reads = c.nonceReads.slice(priorNonceReads);
+    assert.ok(reads.some(read => read.block === 'pending' && BigInt(read.actual) === 2n && BigInt(read.returned) === 1n));
+    assert.ok(reads.some(read => /^0x[0-9a-f]+$/i.test(read.block) && BigInt(read.returned) === 2n),
+      'The comparison must include the nonce at the exact fresh block, independently of pending.');
+    const after = await state(c);
+    assert.equal(after.factory, before.factory); assert.equal(after.pending, null);
+    assert.equal(after.gas_cost_wei, before.gas_cost_wei);
+    await checkedChildrenRemainUnspent(c);
+    assert.equal(c.apiRequests.length, 0);
+  });
+
+test('Rust CLI still rejects a nonempty modified factory runtime at a fresh block immediately without any further send',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    success(await run(c, 'prepare'));
+    const before = await state(c);
+    const genuine = await c.provider.getCode(before.factory);
+    const altered = genuine.slice(0, -2) + (genuine.endsWith('00') ? '01' : '00');
+    assert.notEqual(altered, genuine); assert.equal(altered.length, genuine.length);
+    c.factoryRuntimeFault = { address: before.factory, code: altered };
+    const result = await run(c, 'check-children');
+    assert.equal(result.code, 1); assert.match(result.stderr, /FACTORY_RUNTIME_IDENTITY_MISMATCH/);
+    assert.equal(c.factoryRuntimeFaultReads, 1, 'A real nonempty identity mismatch must not be retried or accepted as head lag.');
+    const lastRead = c.runtimeReads.at(-1);
+    assert.equal(lastRead.address.toLowerCase(), before.factory.toLowerCase());
+    assert.ok(BigInt(lastRead.block) >= BigInt(before.last_receipt_block));
+    assert.ok(lastRead.bytes > 0); assert.equal(c.laggedHeads.length, 0);
+    assert.equal(result.privateKeyProvided, false);
+    assert.equal(c.authRequests.length, 0); assert.equal(c.apiRequests.length, 0);
+    assert.equal((await state(c)).factory, before.factory); assert.equal((await state(c)).pending, null);
+    await checkedChildrenRemainUnspent(c);
+    assert.equal(await c.provider.getCode(before.factory), genuine, 'Only the test RPC response was altered.');
   });
 
 test('Rust CLI quantity1 uses a direct signed mint and deploys no factory', { timeout: 60_000 }, async t => {

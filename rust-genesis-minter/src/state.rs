@@ -59,6 +59,9 @@ pub struct State {
     pub factory: Option<Address>,
     pub pending: Option<Pending>,
     pub gas_cost_wei: u128,
+    /// Optional for registries written before receipt-bound reads were added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_receipt_block: Option<u64>,
 }
 impl Pending {
     fn validate(&self, state: &State) -> Result<()> {
@@ -225,6 +228,7 @@ impl Store {
                 factory: None,
                 pending: None,
                 gas_cost_wei: 0,
+                last_receipt_block: None,
             }
         };
         let result = Self {
@@ -282,6 +286,7 @@ impl Store {
         hash: B256,
         cost: u128,
         factory: Option<Address>,
+        receipt_block: Option<u64>,
     ) -> Result<()> {
         let pending = self
             .state
@@ -307,6 +312,10 @@ impl Store {
             self.state.factory = Some(address);
         }
         self.state.gas_cost_wei = total;
+        if let Some(block) = receipt_block {
+            self.state.last_receipt_block =
+                Some(self.state.last_receipt_block.unwrap_or(0).max(block));
+        }
         self.state.pending = None;
         self.persist().await
     }
@@ -378,11 +387,12 @@ mod tests {
         drop(s);
         let mut s = Store::open(&d.path().canonicalize().unwrap(), identity()).unwrap();
         assert!(s.state.pending.is_some());
-        assert!(s.resolve(B256::ZERO, 1, None).await.is_err());
+        assert!(s.resolve(B256::ZERO, 1, None, Some(10)).await.is_err());
         s.resolve(
             pending().hash,
             32_000,
             Some(predict_create(identity().owner, 0)),
+            Some(10),
         )
         .await
         .unwrap();
@@ -391,6 +401,7 @@ mod tests {
         assert_eq!(s.state.factory, Some(predict_create(identity().owner, 0)));
         assert_eq!(s.state.gas_cost_wei, 32_000);
         assert!(s.state.pending.is_none());
+        assert_eq!(s.state.last_receipt_block, Some(10));
     }
     #[test]
     fn identity_and_corruption_fail_closed() {
@@ -401,6 +412,37 @@ mod tests {
         assert!(Store::open(&d.path().canonicalize().unwrap(), other).is_err());
         std::fs::write(d.path().join("state.json"), b"invalid").unwrap();
         assert!(Store::open(&d.path().canonicalize().unwrap(), identity()).is_err());
+    }
+    #[tokio::test]
+    async fn legacy_state_and_receipt_floor_survive_restart_and_unsent_intent() {
+        let directory = private_tempdir();
+        let root = directory.path().canonicalize().unwrap();
+        let original = Store::open(&root, identity()).unwrap();
+        let legacy = serde_json::to_value(&original.state).unwrap();
+        assert!(legacy.get("last_receipt_block").is_none());
+        drop(original);
+        let mut store = Store::open(&root, identity()).unwrap();
+        assert_eq!(store.state.last_receipt_block, None);
+        store.intent(pending()).await.unwrap();
+        // A reverted deployment still consumes nonce/gas at its receipt block.
+        store
+            .resolve(pending().hash, 30_000, None, Some(12))
+            .await
+            .unwrap();
+        store.intent(pending()).await.unwrap();
+        store.resolve(pending().hash, 0, None, None).await.unwrap();
+        drop(store);
+        let mut store = Store::open(&root, identity()).unwrap();
+        assert_eq!(store.state.last_receipt_block, Some(12));
+        store.intent(pending()).await.unwrap();
+        store
+            .resolve(pending().hash, 1, None, Some(11))
+            .await
+            .unwrap();
+        drop(store);
+        let store = Store::open(&root, identity()).unwrap();
+        assert_eq!(store.state.last_receipt_block, Some(12));
+        assert_eq!(store.state.gas_cost_wei, 30_001);
     }
     #[cfg(unix)]
     #[test]

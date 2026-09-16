@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CloudShell: build SOURCE.tgz SHA256 | install ARTIFACT.tgz SOURCE_SHA256 | status COMMAND_ID | verify ARTIFACT_SHA256
+# CloudShell: build SOURCE.tgz SHA256 | install/upgrade ARTIFACT.tgz SOURCE_SHA256 | status COMMAND_ID | verify ARTIFACT_SHA256
 # Installation never requests a key or executes onchain transactions.
 set -euo pipefail
 umask 077
@@ -21,6 +21,8 @@ CONFIG={'wallet':'0x59Cd658EB1be492c52CcAA2575A90A236F77fAE2','quantity':2,'minQ
  'sendRpcUrls':['https://sequencer.mainnet.chain.robinhood.com'],
  'maxGasCostEth':'0.005','maxTotalGasCostEth':'0.019','reserveEth':'0.001'}
 ARTIFACT_FILES={'bin/vinos-genesis','build-manifest.json','genesis-check.config.json'}
+UPGRADE_FROM={'artifactSha256':'bb84ce6e87907c54c7a75f4911247f3c3a720aec853454e7b38633d48fe22484',
+ 'launcherSha256':'1a6c6fe0fa821b8a0506564447cf7d42cebdc9e81afb6db083df12424162cce0'}
 def need(ok,message):
  if not ok: raise ValueError(message)
 def digest(data): return hashlib.sha256(data).hexdigest()
@@ -110,8 +112,8 @@ if [ "$(id -un)" != ssm-user ]; then echo 'Run as ssm-user in an interactive SSM
 if [ ! -t 0 ] || [ ! -t 1 ]; then echo 'An interactive terminal is required for hidden key entry' >&2; exit 1; fi
 exec env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 '''+shlex.quote(destination+'/bin/vinos-genesis')+''' check-children --send --config '''+shlex.quote(destination+'/genesis-check.config.json')+''' --state-dir /var/lib/vinos-genesis
 '''
-def remote_program(url,sha,approved,binary_sha,wrapper):
- return f'''import hashlib,io,json,os,pathlib,pwd,shutil,stat,subprocess,tarfile,tempfile
+def remote_program(url,sha,approved,binary_sha,wrapper,upgrade_from=None):
+ return f'''import fcntl,hashlib,io,json,os,pathlib,pwd,shutil,stat,subprocess,tarfile,tempfile
 def need(ok,message):
  if not ok: raise RuntimeError(message)
 def directory(path,mode,uid=0,gid=0):
@@ -119,22 +121,48 @@ def directory(path,mode,uid=0,gid=0):
   i=path.lstat();need(stat.S_ISDIR(i.st_mode) and i.st_uid==uid and i.st_gid==gid and not(i.st_mode&0o022),'Unsafe existing directory')
   if uid==0: need(stat.S_IMODE(i.st_mode)&0o005==0o005,'Root program directory is not traversable by ssm-user')
  else: path.mkdir(mode=mode);os.chown(path,uid,gid)
+def checked_bytes(path,maximum):
+ fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+ with os.fdopen(fd,'rb') as stream:
+  i=os.fstat(stream.fileno());need(stat.S_ISREG(i.st_mode) and i.st_uid==0 and not(i.st_mode&0o022) and i.st_size<=maximum,'Unsafe installed file')
+  body=stream.read(maximum+1);need(len(body)<=maximum,'Installed file too large');return body,i
+def launcher_snapshot(path):
+ if not(path.exists() or path.is_symlink()): return None
+ body,i=checked_bytes(path,16384);return (i.st_dev,i.st_ino,hashlib.sha256(body).hexdigest())
+def checked_installation(path,artifact_sha,source_sha=None,expected_binary_sha=None):
+ directory(path,0o755);directory(path/'bin',0o755)
+ marker=json.loads(checked_bytes(path/'installation.json',16384)[0])
+ build=json.loads(checked_bytes(path/'build-manifest.json',65536)[0])
+ need(marker['artifactSha256']==artifact_sha,'Installation marker mismatch')
+ need(build.get('kind')=='vinos-genesis-build-v1' and build['sourceSha256']==marker['sourceSha256'],'Installed source identity mismatch')
+ need(source_sha is None or marker['sourceSha256']==source_sha,'Installed source changed')
+ binary=checked_bytes(path/'bin/vinos-genesis',20*1024*1024)[0]
+ actual=hashlib.sha256(binary).hexdigest()
+ need(marker['binarySha256']==actual and build['binary']=={{'path':'bin/vinos-genesis','sha256':actual,'bytes':len(binary)}},'Installed binary changed')
+ need(expected_binary_sha is None or actual==expected_binary_sha,'Installed binary identity mismatch')
+ need(json.loads(checked_bytes(path/'genesis-check.config.json',65536)[0])=={CONFIG!r},'Installed config changed')
 need(os.geteuid()==0,'Installer requires SSM root')
 os.umask(0o022) # SSM may inherit 077: program directories must remain traversable.
 user=pwd.getpwnam('ssm-user')
 for p in ('/opt','/usr','/usr/local','/usr/local/bin','/var','/var/lib'): directory(pathlib.Path(p),0o755)
 base=pathlib.Path('/opt/vinos-genesis');directory(base,0o755)
+lock_fd=os.open(base/'.install.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
+lock_info=os.fstat(lock_fd);need(stat.S_ISREG(lock_info.st_mode) and lock_info.st_uid==0 and not(lock_info.st_mode&0o022),'Unsafe installer lock')
+fcntl.flock(lock_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
 state=pathlib.Path('/var/lib/vinos-genesis');directory(state,0o700,user.pw_uid,user.pw_gid)
 need(stat.S_IMODE(state.stat().st_mode)==0o700,'State directory must remain private')
 dest=base/{sha!r};cmd=pathlib.Path('/usr/local/bin/vinos-genesis-check')
 wrapper={wrapper!r}.encode()
-if cmd.exists() or cmd.is_symlink():
- i=cmd.lstat();need(stat.S_ISREG(i.st_mode) and i.st_uid==0 and not(i.st_mode&0o022),'Unsafe existing launcher')
- need(cmd.read_bytes()==wrapper,'Different existing Genesis launcher; review upgrade explicitly')
+upgrade_from={upgrade_from!r}
+before=launcher_snapshot(cmd);new_launcher_sha=hashlib.sha256(wrapper).hexdigest()
+if upgrade_from is not None:
+ need(before is not None,'Reviewed old launcher is required for upgrade')
+ need(before[2] in (upgrade_from['launcherSha256'],new_launcher_sha),'Installed launcher is not the reviewed upgrade source')
+ checked_installation(base/upgrade_from['artifactSha256'],upgrade_from['artifactSha256'])
+else:
+ need(before is None or before[2]==new_launcher_sha,'Different existing Genesis launcher; review upgrade explicitly')
 if dest.exists() or dest.is_symlink():
- directory(dest,0o755)
- need((dest/'installation.json').is_file(),'Incomplete destination; inspect before retry')
- need(json.loads((dest/'installation.json').read_text())['artifactSha256']=={sha!r},'Installation marker mismatch')
+ checked_installation(dest,{sha!r},{approved!r},{binary_sha!r})
 else:
  with tempfile.TemporaryDirectory(prefix='.install-',dir=base) as tmp:
   tmp=pathlib.Path(tmp);archive=tmp/'artifact.tgz'
@@ -155,20 +183,32 @@ else:
   need(build['sourceSha256']=={approved!r},'Source identity mismatch')
   need(json.loads((stage/'genesis-check.config.json').read_text())=={CONFIG!r},'Fixed config mismatch')
   binary=stage/'bin/vinos-genesis';need(hashlib.sha256(binary.read_bytes()).hexdigest()=={binary_sha!r},'Binary identity mismatch')
-  subprocess.run([str(binary),'--help'],check=True,timeout=10,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={{'PATH':'/usr/bin:/bin','LANG':'C'}})
   (stage/'installation.json').write_text(json.dumps({{'artifactSha256':{sha!r},'sourceSha256':{approved!r},'binarySha256':{binary_sha!r}}}))
   os.replace(stage,dest)
-need(hashlib.sha256((dest/'bin/vinos-genesis').read_bytes()).hexdigest()=={binary_sha!r},'Installed binary changed')
-need(json.loads((dest/'genesis-check.config.json').read_text())=={CONFIG!r},'Installed config changed')
-if not cmd.exists():
+checked_installation(dest,{sha!r},{approved!r},{binary_sha!r})
+binary=dest/'bin/vinos-genesis'
+subprocess.run([str(binary),'--help'],check=True,timeout=10,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={{'PATH':'/usr/bin:/bin','LANG':'C'}})
+need(launcher_snapshot(cmd)==before,'Launcher changed during installation; no replacement made')
+if before is None or before[2]!=new_launcher_sha:
  fd,name=tempfile.mkstemp(prefix='.vinos-genesis-check-',dir=cmd.parent)
  try:
   with os.fdopen(fd,'wb') as out: out.write(wrapper);out.flush();os.fsync(out.fileno());os.fchmod(out.fileno(),0o755)
-  os.link(name,cmd) # Atomic publication; never clobber an independently created launcher.
- finally: os.unlink(name)
-print(json.dumps({{'installed':True,'directory':str(dest),'launcher':str(cmd),'artifactSha256':{sha!r},'sourceSha256':{approved!r},'binarySha256':{binary_sha!r},'launcherSha256':hashlib.sha256(wrapper).hexdigest(),'stateDirectory':str(state),'privateKeyRead':False,'transactionsSent':0}}))
+  need(launcher_snapshot(cmd)==before,'Launcher changed before publication; no replacement made')
+  if before is None: os.link(name,cmd) # Initial publication never overwrites another launcher.
+  else:
+   need(upgrade_from is not None and before[2]==upgrade_from['launcherSha256'],'Upgrade was not explicitly reviewed')
+   os.replace(name,cmd) # Atomic switch only after old identity, new binary and --help checks.
+  parent_fd=os.open(cmd.parent,os.O_RDONLY|os.O_DIRECTORY)
+  try: os.fsync(parent_fd)
+  finally: os.close(parent_fd)
+ finally:
+  if os.path.exists(name): os.unlink(name)
+need(launcher_snapshot(cmd)[2]==new_launcher_sha,'Published launcher mismatch')
+print(json.dumps({{'installed':True,'directory':str(dest),'launcher':str(cmd),'artifactSha256':{sha!r},'sourceSha256':{approved!r},'binarySha256':{binary_sha!r},'launcherSha256':new_launcher_sha,'upgradedFrom':upgrade_from['artifactSha256'] if upgrade_from else None,'stateDirectory':str(state),'privateKeyRead':False,'transactionsSent':0}}))
+os.close(lock_fd)
 '''
-def install(artifact,approved):
+def install(artifact,approved,upgrade_from=None):
+ need(upgrade_from is None or upgrade_from==UPGRADE_FROM,'Unreviewed upgrade source')
  data=regular(pathlib.Path(artifact).absolute(),24*1024*1024);manifest=inspect_artifact(data,approved);sha=digest(data)
  need(aws('sts','get-caller-identity')['Account']==ACCOUNT,'Unexpected AWS account')
  response=aws('ec2','describe-instances','--instance-ids',INSTANCE)
@@ -178,17 +218,19 @@ def install(artifact,approved):
  need(all(public.get(k) is True for k in ('BlockPublicAcls','IgnorePublicAcls','BlockPublicPolicy','RestrictPublicBuckets')),'Artifact bucket must remain private')
  intent=pathlib.Path.home()/('vinos-genesis-install-'+sha[:16]+'.json');need(not intent.exists(),'Installation intent exists; inspect its command before repeating')
  key='genesis-check/'+sha+'.tgz';destination='/opt/vinos-genesis/'+sha
- save(intent,{'kind':'vinos-genesis-install-intent-v1','instanceId':INSTANCE,'region':REGION,'bucket':BUCKET,'key':key,'artifactSha256':sha,'sourceSha256':approved,'directory':destination,'transactionsSent':0})
+ save(intent,{'kind':'vinos-genesis-install-intent-v1','instanceId':INSTANCE,'region':REGION,'bucket':BUCKET,'key':key,'artifactSha256':sha,'sourceSha256':approved,'directory':destination,'upgradeFrom':upgrade_from,'transactionsSent':0})
  aws('s3api','put-object','--bucket',BUCKET,'--key',key,'--body',str(pathlib.Path(artifact).absolute()),'--expected-bucket-owner',ACCOUNT,'--server-side-encryption','AES256','--metadata','sha256='+sha)
  signed=subprocess.run(['aws','s3','presign','s3://'+BUCKET+'/'+key,'--expires-in','600','--region',REGION],capture_output=True,text=True,timeout=30,env=dict(os.environ,AWS_MAX_ATTEMPTS='1'))
  need(signed.returncode==0,'Presign failed; URL not printed');url=signed.stdout.strip();parsed=urlsplit(url)
  need(parsed.scheme=='https' and parsed.hostname in (BUCKET+'.s3.'+REGION+'.amazonaws.com',BUCKET+'.s3.amazonaws.com') and parsed.path=='/'+key and not parsed.username and not parsed.password and not parsed.fragment,'Unexpected presigned object URL')
- program=remote_program(url,sha,approved,manifest['binary']['sha256'],launcher(destination))
+ program=remote_program(url,sha,approved,manifest['binary']['sha256'],launcher(destination),upgrade_from)
  save(pathlib.Path(str(intent)+'.submission.json'),{'submissionIntent':True,'comment':'vinos-genesis-install-'+sha[:16]})
  result=aws('ssm','send-command','--instance-ids',INSTANCE,'--document-name','AWS-RunShellScript','--comment','vinos-genesis-install-'+sha[:16],
             '--timeout-seconds','120','--parameters',json.dumps({'commands':['python3 -c '+shlex.quote(program)],'executionTimeout':['180']}))
  command=result['Command']['CommandId'];save(pathlib.Path(str(intent)+'.command.json'),{'commandId':command,'instanceId':INSTANCE})
  print(json.dumps({'intent':str(intent),'commandId':command,'directory':destination,'launcher':'vinos-genesis-check','transactionsSent':0}))
+def upgrade(artifact,approved):
+ install(artifact,approved,UPGRADE_FROM)
 def status(command):
  need(re.fullmatch('[0-9a-f-]{36}',command),'Invalid command ID')
  v=aws('ssm','get-command-invocation','--command-id',command,'--instance-id',INSTANCE)
@@ -240,10 +282,10 @@ raise SystemExit(result.returncode or (0 if health['ok'] else 1))
  print(json.dumps({'intent':str(intent),'commandId':command,'verificationOnly':True,'transactionsSent':0}))
 def main(args):
  if args in ([],['--help']):
-  print('bash install-genesis-check.sh build SOURCE.tgz SHA256\nbash install-genesis-check.sh install ARTIFACT.tgz SOURCE_SHA256\nbash install-genesis-check.sh status COMMAND_ID\nbash install-genesis-check.sh verify ARTIFACT_SHA256\nInstall and verify never prompt for a key or start paid preparation.');return
- need(args[0] in ('build','install','status','verify') and len(args)==(2 if args[0] in ('status','verify') else 3),'Invalid command arguments')
- if args[0] in ('build','install'): need(re.fullmatch('[0-9a-f]{64}',args[2]),'Expected SHA256')
- {'build':build,'install':install,'status':status,'verify':verify}[args[0]](*args[1:])
+  print('bash install-genesis-check.sh build SOURCE.tgz SHA256\nbash install-genesis-check.sh install ARTIFACT.tgz SOURCE_SHA256\nbash install-genesis-check.sh upgrade ARTIFACT.tgz SOURCE_SHA256\nbash install-genesis-check.sh status COMMAND_ID\nbash install-genesis-check.sh verify ARTIFACT_SHA256\nUpgrade only accepts the pinned reviewed old installation. Install, upgrade and verify never prompt for a key or start paid preparation.');return
+ need(args[0] in ('build','install','upgrade','status','verify') and len(args)==(2 if args[0] in ('status','verify') else 3),'Invalid command arguments')
+ if args[0] in ('build','install','upgrade'): need(re.fullmatch('[0-9a-f]{64}',args[2]),'Expected SHA256')
+ {'build':build,'install':install,'upgrade':upgrade,'status':status,'verify':verify}[args[0]](*args[1:])
 try: main(sys.argv[1:])
 except Exception as error: raise SystemExit('GENESIS_HELPER_FAILED_'+type(error).__name__+'; inspect build log or installation intent; do not retry uncertain SSM submissions')
 VINOS_INSTALLER

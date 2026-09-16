@@ -43,6 +43,7 @@ pub struct Session {
     senders: Vec<(usize, RpcClient)>,
     pub cfg: Config,
     pub local: bool,
+    read_block_floor: u64,
 }
 struct PreparedChild {
     child: ChildAddress,
@@ -85,6 +86,7 @@ impl Session {
             senders: Vec::new(),
             cfg,
             local,
+            read_block_floor: 0,
         })
     }
     async fn warm_senders(&mut self) -> Result<()> {
@@ -152,7 +154,11 @@ impl Session {
         Ok(())
     }
     pub async fn preflight(&mut self, store: &Store) -> Result<()> {
-        let snapshot = chain::snapshot(&mut self.reader, &self.cfg).await?;
+        self.read_block_floor = self
+            .read_block_floor
+            .max(store.state.last_receipt_block.unwrap_or(0));
+        let snapshot =
+            chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
         if let Some(factory) = store.state.factory {
             chain::verify_factory(&mut self.reader, &self.cfg, factory, &snapshot.head.tag).await?;
         }
@@ -261,7 +267,11 @@ impl Session {
             store,
             json!({"event":"receipt","hash":pending.hash,"status":status,"gasCostWei":cost.to_string(),"block":receipt["blockNumber"]}),
         ).await?;
-        store.resolve(pending.hash, cost, factory).await?;
+        let receipt_block = eth::quantity64(&receipt["blockNumber"])?;
+        store
+            .resolve(pending.hash, cost, factory, Some(receipt_block))
+            .await?;
+        self.read_block_floor = self.read_block_floor.max(receipt_block);
         ensure!(status == 1, "TRANSACTION_REVERTED_GAS_COST_RECORDED");
         Ok(Some(receipt))
     }
@@ -315,7 +325,7 @@ impl Session {
         if valid_until.is_some_and(|t| Instant::now() >= t) {
             // No send future has been created or polled, so clearing this local
             // intent is safe. A cancellation AFTER send never follows this path.
-            store.resolve(signed.hash, 0, None).await?;
+            store.resolve(signed.hash, 0, None, None).await?;
             anyhow::bail!("PREPARATION_EXPIRED_DURING_DURABLE_INTENT_NO_SEND");
         }
         emit(
@@ -323,7 +333,7 @@ impl Session {
             json!({"event":"signed_intent","hash":signed.hash,"signingMs":signing_ms,"gasLimit":quote.gas_limit,"maxFeePerGasWei":quote.max_fee.to_string(),"maxGasCostWei":quote.max_cost.to_string()}),
         ).await?;
         if valid_until.is_some_and(|t| Instant::now() >= t) {
-            store.resolve(signed.hash, 0, None).await?;
+            store.resolve(signed.hash, 0, None, None).await?;
             anyhow::bail!("PREPARATION_EXPIRED_DURING_LOG_WRITE_NO_SEND");
         }
         let started = Instant::now();
@@ -377,7 +387,7 @@ impl Session {
         if self.cfg.quantity == 1 {
             return Ok(true);
         }
-        let snap = chain::snapshot(&mut self.reader, &self.cfg).await?;
+        let snap = chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
         ensure!(
             snap.remaining >= u64::from(self.cfg.min_quantity),
             "INSUFFICIENT_REMAINING_SUPPLY"
@@ -394,6 +404,7 @@ impl Session {
                 0,
                 store.state.gas_cost_wei,
                 self.local,
+                &mut self.read_block_floor,
             )
             .await?;
             emit(
@@ -421,7 +432,7 @@ impl Session {
             .state
             .factory
             .ok_or_else(|| anyhow::anyhow!("FACTORY_REQUIRED"))?;
-        let h = chain::head(&mut self.reader).await?;
+        let h = chain::head(&mut self.reader, &mut self.read_block_floor).await?;
         let (count, unused) = chain::children(&mut self.reader, &self.cfg, factory, &h.tag).await?;
         let desired = u64::from(self.cfg.quantity).min(snap.remaining);
         let missing = desired.saturating_sub(unused.len().try_into()?);
@@ -439,6 +450,7 @@ impl Session {
                 0,
                 store.state.gas_cost_wei,
                 self.local,
+                &mut self.read_block_floor,
             )
             .await?;
             emit(
@@ -463,7 +475,7 @@ impl Session {
             )
             .await?;
         }
-        let h = chain::head(&mut self.reader).await?;
+        let h = chain::head(&mut self.reader, &mut self.read_block_floor).await?;
         let (_, unused) = chain::children(&mut self.reader, &self.cfg, factory, &h.tag).await?;
         ensure!(
             unused.len() >= usize::try_from(desired)?,
@@ -624,7 +636,7 @@ impl Session {
         api: Option<&OpenSeaClient>,
         send: bool,
     ) -> Result<u8> {
-        let h = chain::head(&mut self.reader).await?;
+        let h = chain::head(&mut self.reader, &mut self.read_block_floor).await?;
         let children = if self.cfg.quantity == 1 {
             vec![ChildAddress {
                 index: 0,
@@ -659,7 +671,8 @@ impl Session {
                 started.elapsed() < Duration::from_secs(self.cfg.wait_timeout_secs),
                 "MINT_WAIT_TIMEOUT"
             );
-            let snapshot = chain::snapshot(&mut self.reader, &self.cfg).await?;
+            let snapshot =
+                chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
             ensure!(
                 snapshot.remaining >= u64::from(self.cfg.min_quantity),
                 "SOLD_OUT_OR_BELOW_MINIMUM"
@@ -759,7 +772,8 @@ impl Session {
         factory: Option<Address>,
         send: bool,
     ) -> Result<u8> {
-        let snapshot = chain::snapshot(&mut self.reader, &self.cfg).await?;
+        let snapshot =
+            chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
         let count = usize::try_from(snapshot.remaining)?
             .min(usize::from(self.cfg.quantity))
             .min(batch.items.len());
@@ -832,12 +846,14 @@ impl Session {
             minimum_gas,
             store.state.gas_cost_wei,
             self.local,
+            &mut self.read_block_floor,
         )
         .await?;
         // Fee/nonce checks finish BEFORE the final exact-gas eth_call. The gas
         // floor is essential: this factory intentionally returns0 on low gas.
         let final_start = Instant::now();
-        let fresh = chain::snapshot(&mut self.reader, &self.cfg).await?;
+        let fresh =
+            chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
         ensure!(
             self.cfg
                 .wait_until_timestamp
@@ -1064,7 +1080,8 @@ impl Session {
             .state
             .factory
             .ok_or_else(|| anyhow::anyhow!("EXISTING_FACTORY_REQUIRED"))?;
-        let snapshot = chain::snapshot(&mut self.reader, &self.cfg).await?;
+        let snapshot =
+            chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
         ensure!(snapshot.remaining >= 2, "FEWER_THAN_TWO_NFT_AVAILABLE");
         let (_, children) =
             chain::children(&mut self.reader, &self.cfg, factory, &snapshot.head.tag).await?;

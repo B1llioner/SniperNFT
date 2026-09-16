@@ -9,7 +9,7 @@ use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, ensure};
 use rust_mint_benchmark::{eth, rpc::RpcClient};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 pub struct Head {
     pub number: u64,
@@ -54,22 +54,42 @@ pub async fn raw_call(
             .await?,
     )
 }
-pub async fn head(rpc: &mut RpcClient) -> Result<Head> {
+/// A load-balanced reader may return `latest` older than a receipt it just
+/// served. Never use that older state to inspect or simulate a new contract.
+pub async fn head(rpc: &mut RpcClient, minimum_block: &mut u64) -> Result<Head> {
     ensure!(
         eth::quantity64(&rpc.call("eth_chainId", json!([])).await?)? == CHAIN_ID,
         "WRONG_CHAIN"
     );
-    let b = rpc
-        .call("eth_getBlockByNumber", json!(["latest", false]))
-        .await?;
-    let number = eth::quantity64(&b["number"])?;
-    Ok(Head {
-        number,
-        timestamp: eth::quantity64(&b["timestamp"])?,
-        gas_limit: eth::quantity64(&b["gasLimit"])?,
-        base_fee: eth::quantity(&b["baseFeePerGas"])?,
-        tag: format!("0x{number:x}"),
-    })
+    for attempt in 1..=3 {
+        let b = rpc
+            .call("eth_getBlockByNumber", json!(["latest", false]))
+            .await?;
+        let number = eth::quantity64(&b["number"])?;
+        if number >= *minimum_block {
+            let result = Head {
+                number,
+                timestamp: eth::quantity64(&b["timestamp"])?,
+                gas_limit: eth::quantity64(&b["gasLimit"])?,
+                base_fee: eth::quantity(&b["baseFeePerGas"])?,
+                tag: format!("0x{number:x}"),
+            };
+            *minimum_block = number;
+            return Ok(result);
+        }
+        eprintln!(
+            "{}",
+            json!({"event":"read_rpc_behind","requiredBlock":*minimum_block,
+                "observedBlock":number,"consecutiveFailures":attempt})
+        );
+        ensure!(
+            attempt < 3,
+            "READ_RPC_BEHIND_CONFIRMED_OR_OBSERVED_BLOCK: required={} observed={number} attempts=3",
+            *minimum_block
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    anyhow::bail!("READ_RPC_HEAD_UNAVAILABLE")
 }
 pub async fn code(rpc: &mut RpcClient, address: Address, tag: &str) -> Result<Vec<u8>> {
     eth::bytes(&rpc.call("eth_getCode", json!([address, tag])).await?)
@@ -83,8 +103,12 @@ pub async fn stats(
     let b = raw_call(rpc, nft, Nft::getMintStatsCall { minter }.abi_encode(), tag).await?;
     <(U256, U256, U256)>::abi_decode_validate(&b).map_err(|_| anyhow::anyhow!("INVALID_NFT_STATS"))
 }
-pub async fn snapshot(rpc: &mut RpcClient, cfg: &Config) -> Result<Snapshot> {
-    let h = head(rpc).await?;
+pub async fn snapshot(
+    rpc: &mut RpcClient,
+    cfg: &Config,
+    minimum_block: &mut u64,
+) -> Result<Snapshot> {
+    let h = head(rpc, minimum_block).await?;
     ensure!(
         keccak256(code(rpc, cfg.nft, &h.tag).await?) == cfg.nft_code_hash,
         "NFT_CODE_CHANGED"
@@ -184,9 +208,13 @@ pub async fn verify_factory(
         ("nft", eth::address_word(cfg.nft)),
         ("recipient", eth::address_word(cfg.recipient())),
     ]))?;
+    let actual = code(rpc, factory, tag).await?;
     ensure!(
-        code(rpc, factory, tag).await? == expected,
-        "FACTORY_RUNTIME_IDENTITY_MISMATCH"
+        actual == expected,
+        "FACTORY_RUNTIME_IDENTITY_MISMATCH: factory={factory} block={tag} expectedHash={} actualHash={} actualBytes={}",
+        keccak256(&expected),
+        keccak256(&actual),
+        actual.len()
     );
     Ok(())
 }
@@ -336,8 +364,9 @@ pub async fn quote(
     min_gas: u64,
     already_spent: u128,
     local: bool,
+    minimum_block: &mut u64,
 ) -> Result<Quote> {
-    let h = head(rpc).await?;
+    let h = head(rpc, minimum_block).await?;
     let estimate = eth::quantity64(
         &rpc.call("eth_estimateGas", json!([transaction, h.tag]))
             .await?,
@@ -391,8 +420,10 @@ pub async fn quote(
                 .is_some_and(|n| n <= total_cap),
         "GAS_BUDGET_EXCEEDED"
     );
+    // Bind balance and confirmed nonce to the same fresh block used for gas
+    // estimation. A separately cached `latest`/`pending` must not undo that.
     let balance = eth::quantity(
-        &rpc.call("eth_getBalance", json!([cfg.wallet, "pending"]))
+        &rpc.call("eth_getBalance", json!([cfg.wallet, h.tag]))
             .await?,
     )?;
     ensure!(
@@ -402,15 +433,19 @@ pub async fn quote(
                 .ok_or_else(|| anyhow::anyhow!("COST_OVERFLOW"))?,
         "BALANCE_CANNOT_COVER_GAS_AND_RESERVE"
     );
-    let latest = eth::quantity64(
-        &rpc.call("eth_getTransactionCount", json!([cfg.wallet, "latest"]))
+    let confirmed = eth::quantity64(
+        &rpc.call("eth_getTransactionCount", json!([cfg.wallet, h.tag]))
             .await?,
     )?;
     let pending = eth::quantity64(
         &rpc.call("eth_getTransactionCount", json!([cfg.wallet, "pending"]))
             .await?,
     )?;
-    ensure!(latest == pending, "WALLET_HAS_PENDING_TRANSACTION");
+    ensure!(
+        pending >= confirmed,
+        "READ_RPC_PENDING_NONCE_BEHIND_CONFIRMED_BLOCK"
+    );
+    ensure!(confirmed == pending, "WALLET_HAS_PENDING_TRANSACTION");
     Ok(Quote {
         gas_limit,
         max_fee,
