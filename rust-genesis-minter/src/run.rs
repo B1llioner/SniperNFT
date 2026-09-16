@@ -31,6 +31,7 @@ pub enum Command {
     Setup,
     Start,
     Recover,
+    CheckChildren,
 }
 pub struct Options {
     pub command: Command,
@@ -992,12 +993,48 @@ impl Session {
                     store,
                     json!({"event":"recovered_existing_mint_no_new_submission","minted":minted,"requested":requested,"hash":pending.hash}),
                 ).await?;
+                ensure!(
+                    options.command != Command::CheckChildren,
+                    "PENDING_MINT_RECOVERED_CHILD_CHECK_NOT_PERFORMED_RERUN_CHECK"
+                );
                 return Ok(if minted >= u64::from(minimum) { 0 } else { 2 });
             }
         }
         self.preflight(store).await?;
         if options.send {
             self.warm_senders().await?;
+        }
+        if options.command == Command::CheckChildren {
+            ensure!(
+                self.cfg.quantity == 2
+                    && self.cfg.min_quantity == 2
+                    && self.cfg.mode == Mode::Signed,
+                "CHILD_CHECK_REQUIRES_QUANTITY_2_MINIMUM_2_SIGNED_MODE"
+            );
+            if !self.prepare(store, signer, options.send).await? {
+                anyhow::bail!("CHILD_CHECK_NEEDS_PREPARED_CHILDREN_USE_SEND_FOR_PREPARATION_ONLY");
+            }
+            // This path never passes `send = true` to mint orchestration. Only
+            // deployment/preparation above may broadcast. Limit the API probe
+            // to one batch: two minters, no key rotation or repeated polling.
+            let checked = match tokio::time::timeout(
+                Duration::from_secs(self.cfg.wait_timeout_secs),
+                self.check_children(store, api),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(anyhow::anyhow!("CHILD_CHECK_TIMEOUT_MINT_NOT_SENT")),
+            };
+            if let Err(error) = &checked {
+                emit(
+                    store,
+                    json!({"event":"child_check_result","passed":false,"mintSent":false,
+                    "reason":error.to_string(),"factory":store.state.factory}),
+                )
+                .await?;
+            }
+            return checked;
         }
         if matches!(options.command, Command::Prepare | Command::Setup) {
             if !self.prepare(store, signer, options.send).await? {
@@ -1017,6 +1054,40 @@ impl Session {
         )
         .await
         .map_err(|_| anyhow::anyhow!("MINT_WAIT_TIMEOUT_CHECK_PENDING_HASH"))?
+    }
+    async fn check_children(
+        &mut self,
+        store: &mut Store,
+        api: Option<&OpenSeaClient>,
+    ) -> Result<u8> {
+        let factory = store
+            .state
+            .factory
+            .ok_or_else(|| anyhow::anyhow!("EXISTING_FACTORY_REQUIRED"))?;
+        let snapshot = chain::snapshot(&mut self.reader, &self.cfg).await?;
+        ensure!(snapshot.remaining >= 2, "FEWER_THAN_TWO_NFT_AVAILABLE");
+        let (_, children) =
+            chain::children(&mut self.reader, &self.cfg, factory, &snapshot.head.tag).await?;
+        ensure!(children.len() == 2, "TWO_UNUSED_CHILDREN_REQUIRED");
+        let mut failures = 0;
+        let batch = self
+            .fetch_batch(store, api, &children, &snapshot, &mut failures)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("CHILD_ELIGIBILITY_INCONCLUSIVE_CHECK_API_EVENTS"))?;
+        self.finalize_batch(store, None, batch, Some(factory), false)
+            .await?;
+        emit(
+            store,
+            json!({"event":"child_check_result","passed":true,"mintSent":false,
+            "simulatedMintCount":2,"factory":factory,
+            "children":children.iter().map(|c|c.address).collect::<Vec<_>>(),
+            "totalGasCostWei":store.state.gas_cost_wei.to_string()}),
+        )
+        .await?;
+        println!(
+            "CHECK PASSED: OpenSea authorized both children; both mints and transfers simulated successfully. No mint transaction was sent."
+        );
+        Ok(0)
     }
 }
 

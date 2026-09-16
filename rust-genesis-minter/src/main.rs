@@ -19,6 +19,8 @@ enum Action {
     Setup,
     Start,
     Recover,
+    /// Prepare two children, obtain an automatic OpenSea API key, simulate only.
+    CheckChildren,
 }
 #[derive(Parser)]
 #[command(
@@ -34,7 +36,7 @@ struct Args {
     /// Persistent registry root; reuse the SAME root on subsequent runs.
     #[arg(long, default_value = ".state/genesis-signed")]
     state_dir: PathBuf,
-    /// Authorize the requested deploy/prepare/mint operation. Otherwise dry-run.
+    /// Authorize requested writes. Check-children only writes preparation, never mint.
     #[arg(long)]
     send: bool,
     /// Isolated tests only: all RPCs must use literal loopback addresses.
@@ -121,6 +123,12 @@ fn entry() -> Result<u8> {
         "LOCAL_TEST_OPTIONS_FORBIDDEN_IN_PRODUCTION"
     );
     let cfg = Config::load(&args.config, args.local_test)?;
+    if matches!(args.action, Action::CheckChildren) {
+        ensure!(
+            cfg.quantity == 2 && cfg.min_quantity == 2 && cfg.mode == Mode::Signed,
+            "CHILD_CHECK_REQUIRES_QUANTITY_2_MINIMUM_2_SIGNED_MODE"
+        );
+    }
     ensure!(
         !args.send || !matches!(args.action, Action::Preflight | Action::Recover),
         "PREFLIGHT_AND_RECOVER_ARE_READ_ONLY"
@@ -149,7 +157,7 @@ fn entry() -> Result<u8> {
     if matches!(args.action, Action::Recover)
         || (recovered_mint && !matches!(args.action, Action::Preflight))
     {
-        return runtime.block_on(session.execute(
+        let recovered = runtime.block_on(session.execute(
             &mut store,
             None,
             None,
@@ -158,21 +166,64 @@ fn entry() -> Result<u8> {
                 send: false,
                 local: args.local_test,
             },
-        ));
+        ))?;
+        ensure!(
+            !matches!(args.action, Action::CheckChildren),
+            "PENDING_MINT_RECOVERED_CHILD_CHECK_NOT_PERFORMED_RERUN_CHECK"
+        );
+        return Ok(recovered);
     }
     if store.state.pending.is_some() && !matches!(args.action, Action::Preflight) {
         runtime.block_on(session.recover(&mut store, false))?;
     }
     // Read-only chain identity checks precede both hidden credential prompts.
     runtime.block_on(session.preflight(&store))?;
+    // Obtain a short-lived anonymous API key BEFORE asking for wallet material
+    // or submitting preparation. Credential bodies are never persisted/logged.
+    let automatic_api = if matches!(args.action, Action::CheckChildren) {
+        let (client, metadata) = runtime.block_on(async {
+            if let Some(origin) = &args.test_api_origin {
+                OpenSeaClient::ephemeral_local_test(origin).await
+            } else {
+                OpenSeaClient::ephemeral().await
+            }
+        })?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        ensure!(
+            metadata.expires_at_unix_seconds
+                > now
+                    .saturating_add(cfg.wait_timeout_secs)
+                    .saturating_add(600),
+            "EPHEMERAL_API_KEY_LIFETIME_TOO_SHORT"
+        );
+        ensure!(
+            metadata.rate_limits.fulfillment.requests >= 2
+                && metadata.rate_limits.write.requests >= 2
+                && metadata.rate_limits.read.requests >= 2,
+            "EPHEMERAL_API_QUOTA_TOO_SMALL_FOR_TWO_CHILDREN"
+        );
+        let event = serde_json::json!({"event":"automatic_api_key_ready",
+            "expiresAtUnixSeconds":metadata.expires_at_unix_seconds,
+            "plannedMintApiRequests":2,"rateLimits":metadata.rate_limits,"keySaved":false});
+        runtime.block_on(store.event(&event))?;
+        println!("{event}");
+        Some(client)
+    } else {
+        None
+    };
     let minting = matches!(args.action, Action::Setup | Action::Start);
-    let (signer, api) = secrets(&args, &cfg, args.send, minting && cfg.mode != Mode::Public)?;
+    let (signer, prompted_api) =
+        secrets(&args, &cfg, args.send, minting && cfg.mode != Mode::Public)?;
+    let api = automatic_api.or(prompted_api);
     let command = match args.action {
         Action::Preflight => Command::Preflight,
         Action::Prepare => Command::Prepare,
         Action::Setup => Command::Setup,
         Action::Start => Command::Start,
         Action::Recover => Command::Recover,
+        Action::CheckChildren => Command::CheckChildren,
     };
     let options = Options {
         command,

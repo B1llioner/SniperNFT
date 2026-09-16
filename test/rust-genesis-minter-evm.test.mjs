@@ -19,7 +19,9 @@ const API_KEY = 'local-fixture-api-key-do-not-log';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const BINARY = process.env.RUST_GENESIS_MINTER_BIN ?? join(ROOT, 'rust-genesis-minter/target/debug/vinos-genesis');
 const ARTIFACT = JSON.parse(await readFile(new URL('../artifacts/GenesisChildFactory.json', import.meta.url), 'utf8'));
-const BATCH_SELECTOR = new Interface(ARTIFACT.contracts.GenesisChildFactory.abi).getFunction('mintBatch').selector;
+const FACTORY_INTERFACE = new Interface(ARTIFACT.contracts.GenesisChildFactory.abi);
+const BATCH_SELECTOR = FACTORY_INTERFACE.getFunction('mintBatch').selector;
+const PREPARE_SELECTOR = FACTORY_INTERFACE.getFunction('prepareChildren').selector;
 const SOURCE = 'contracts/GenesisChildFactory.sol';
 const FIXTURE = 'contracts/test/GenesisChildFixtures.sol';
 const sources = Object.fromEntries(await Promise.all([SOURCE, FIXTURE].map(async path => [path, {
@@ -96,8 +98,9 @@ async function fixture(t, overrides = {}) {
   const signer = Wallet.createRandom();
   const route = await deploy(owner, fixtureArtifact('MockGenesisChildSeaDrop'), [signer.address, fee]);
   await (await nft.setRoute(route.target)).wait();
-  const context = { provider, directory, owner, nft, route, fee, signer, apiRequests: [], submissions: [], calls: [],
+  const context = { provider, directory, owner, nft, route, fee, signer, apiRequests: [], authRequests: [], submissions: [], calls: [],
     handlerFailures: [], hideReceipt: null, loseMintAck: false, apiStatus: 200, apiHook: null,
+    authStatus: 201, authExpiresAt: null, authRateLimits: null, invocations: [], activeInvocation: null,
     finalSimulations: [], finalSimulationFault: null };
   const stateRoot = join(directory, 'registry');
   const statePath = join(stateRoot, `4663-${WALLET.toLowerCase()}`, 'state.json');
@@ -146,10 +149,30 @@ async function fixture(t, overrides = {}) {
   const rpcPort = await listen(rpcServer); t.after(() => close(rpcServer));
   const apiServer = createServer(async (req, res) => {
     try {
-      assert.equal(req.method, 'POST'); assert.equal(req.url, '/api/v2/drops/rare-friends-genesis/mint');
-      assert.equal(req.headers['x-api-key'], API_KEY);
+      assert.equal(req.method, 'POST');
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
-      const request = JSON.parse(Buffer.concat(chunks).toString());
+      const raw = Buffer.concat(chunks).toString();
+      if (req.url === '/api/v2/auth/keys') {
+        assert.equal(req.headers['x-api-key'], undefined, 'Creating an anonymous key needs no existing API key.');
+        assert.equal(req.headers.authorization, undefined);
+        assert.equal(raw, '');
+        assert.equal(context.activeInvocation?.action, 'check-children');
+        assert.equal(context.activeInvocation.privateKeyProvided, false,
+          'The automatic-key request must complete before the fixture provides private-key input.');
+        context.authRequests.push({ keyInputProvided: context.activeInvocation.privateKeyProvided,
+          preparationTransactions: context.submissions.length });
+        res.writeHead(context.authStatus, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(context.authStatus === 201 ? {
+          api_key: API_KEY,
+          expires_at: context.authExpiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          rate_limits: context.authRateLimits ?? { read: '600/h', write: '30/h', fulfillment: '5/m' },
+          name: 'local instant API key', upgrade_url: 'https://opensea.io/api-keys',
+        } : { error: `private authentication failure ${API_KEY}` }));
+        return;
+      }
+      assert.equal(req.url, '/api/v2/drops/rare-friends-genesis/mint');
+      assert.equal(req.headers['x-api-key'], API_KEY);
+      const request = JSON.parse(raw);
       assert.deepEqual(Object.keys(request).sort(), ['minter', 'quantity']); assert.equal(request.quantity, 1);
       context.apiRequests.push(request);
       if (context.apiStatus !== 200) {
@@ -188,23 +211,214 @@ async function run(c, action, overrides = {}) {
   const args = [action, '--config', configPath, '--state-dir', c.stateRoot, '--local-test',
     '--test-api-origin', c.apiOrigin, '--test-secrets-stdin'];
   if (!['recover', 'preflight'].includes(action)) args.push('--send');
+  const invocation = { action, privateKeyProvided: false };
+  c.invocations.push(invocation); c.activeInvocation = invocation;
   const child = spawn(BINARY, args, { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '', stderr = '', timedOut = false;
-  child.stdout.on('data', data => { stdout += data; if (stdout.length > 262144) child.kill('SIGKILL'); });
+  child.stdout.on('data', data => {
+    stdout += data;
+    if (stdout.length > 262144) child.kill('SIGKILL');
+    if (action === 'check-children' && !invocation.privateKeyProvided
+      && stdout.split('\n').slice(0, -1).some(line => line.startsWith('{') && line.endsWith('}')
+        && JSON.parse(line).event === 'automatic_api_key_ready')) {
+      // Keep stdin open and empty until the API key is ready. This proves key
+      // creation cannot depend on reading a private key or an API-key line.
+      invocation.privateKeyProvided = true;
+      child.stdin.end(`${KEY}\n`);
+    }
+  });
   child.stderr.on('data', data => { stderr += data; if (stderr.length > 262144) child.kill('SIGKILL'); });
   const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 45_000);
   child.stdin.on('error', () => {});
-  child.stdin.end(`${KEY}\n${API_KEY}\n`);
+  if (action !== 'check-children') {
+    invocation.privateKeyProvided = true;
+    child.stdin.end(`${KEY}\n${API_KEY}\n`);
+  }
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   clearTimeout(timer);
   assert.equal(timedOut, false, `CLI timed out: ${stdout}\n${stderr}`);
   assert.ok(!stdout.includes(KEY) && !stderr.includes(KEY), 'Synthetic private key must remain hidden.');
   assert.ok(!stdout.includes(API_KEY) && !stderr.includes(API_KEY), 'API key/error body must remain hidden.');
   assert.deepEqual(c.handlerFailures, []);
-  return { code, stdout, stderr, events: stdout.split('\n').filter(line => line.startsWith('{')).map(JSON.parse) };
+  return { code, stdout, stderr, privateKeyProvided: invocation.privateKeyProvided,
+    events: stdout.split('\n').filter(line => line.startsWith('{')).map(JSON.parse) };
 }
 function success(result) { assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`); }
 async function state(c) { return JSON.parse(await readFile(c.statePath, 'utf8')); }
+
+async function checkedChildrenRemainUnspent(c) {
+  const saved = await state(c);
+  assert.notEqual(saved.factory, null); assert.equal(saved.pending, null);
+  const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+  assert.equal(await factory.childCount(), 2n);
+  const children = [];
+  for (let index = 0; index < 2; ++index) {
+    const address = await factory.children(index);
+    assert.notEqual(await c.provider.getCode(address), '0x');
+    const child = new Contract(address, ARTIFACT.contracts.GenesisMintChild.abi, c.provider);
+    assert.equal(await child.spent(), false, 'A simulation must leave each prepared child reusable.');
+    assert.equal(await c.nft.balanceOf(address), 0n);
+    assert.equal((await c.nft.getMintStats(address))[0], 0n);
+    children.push(address);
+  }
+  assert.equal(new Set(children).size, 2);
+  assert.equal(await c.nft.total(), 0n);
+  assert.equal(await c.nft.balanceOf(WALLET), 0n);
+  assert.equal(c.submissions.length, 2, 'Only deployment and child preparation may be submitted.');
+  assert.equal(c.submissions[0].to, null);
+  assert.equal(c.submissions[1].to.toLowerCase(), saved.factory.toLowerCase());
+  assert.equal(c.submissions[1].data.slice(0, 10), PREPARE_SELECTOR);
+  assert.equal(await c.provider.getTransactionCount(WALLET), 2);
+  for (const path of [c.statePath, join(c.stateRoot, `4663-${WALLET.toLowerCase()}`, 'events.jsonl')]) {
+    const persisted = await readFile(path, 'utf8');
+    assert.ok(!persisted.includes(KEY) && !persisted.includes(API_KEY), 'Credentials must not be persisted.');
+  }
+  return { saved, children };
+}
+
+function checkedSuccess(result) {
+  success(result);
+  assert.equal(result.privateKeyProvided, true);
+  const ready = result.events.filter(event => event.event === 'automatic_api_key_ready');
+  assert.equal(ready.length, 1); assert.equal(ready[0].keySaved, false);
+  assert.equal(ready[0].plannedMintApiRequests, 2);
+  const checks = result.events.filter(event => event.event === 'child_check_result');
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].passed, true); assert.equal(checks[0].simulatedMintCount, 2);
+  assert.equal(checks[0].mintSent, false);
+  assert.equal(result.events.at(-1), checks[0], 'The final structured event must report the check outcome.');
+}
+
+test('Rust CLI check-children creates an automatic API key before private-key input and only sends two preparation transactions',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    const result = await run(c, 'check-children'); checkedSuccess(result);
+    assert.deepEqual(c.authRequests, [{ keyInputProvided: false, preparationTransactions: 0 }]);
+    const { children } = await checkedChildrenRemainUnspent(c);
+    assert.equal(c.apiRequests.length, 2);
+    assert.deepEqual(c.apiRequests.map(request => request.minter.toLowerCase()).sort(), children.map(address => address.toLowerCase()).sort());
+    assert.equal(c.finalSimulations.length, 1);
+    assert.equal(BigInt(c.finalSimulations[0].result), 2n, 'The real EVM must simulate both mints successfully.');
+  });
+
+test('Rust CLI repeated check-children reuses its factory and children with no additional preparation or mint transactions',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    checkedSuccess(await run(c, 'check-children'));
+    const before = await checkedChildrenRemainUnspent(c);
+    checkedSuccess(await run(c, 'check-children'));
+    const after = await checkedChildrenRemainUnspent(c);
+    assert.equal(after.saved.factory, before.saved.factory);
+    assert.deepEqual(after.children, before.children);
+    assert.ok(BigInt(before.saved.gas_cost_wei) > 0n);
+    assert.equal(after.saved.gas_cost_wei, before.saved.gas_cost_wei);
+    assert.deepEqual(c.authRequests, [
+      { keyInputProvided: false, preparationTransactions: 0 },
+      { keyInputProvided: false, preparationTransactions: 2 },
+    ]);
+    assert.equal(c.apiRequests.length, 4);
+    assert.equal(c.finalSimulations.length, 2);
+    assert.ok(c.finalSimulations.every(call => BigInt(call.result) === 2n));
+  });
+
+for (const scenario of [
+  { name: 'denied', status: 403, expired: false, error: /403|authorization|authentication/i },
+  { name: 'expired', status: 201, expired: true, error: /expired|expiry/i },
+]) {
+  test(`Rust CLI check-children stops on a ${scenario.name} automatic API key before reading a private key or preparing contracts`,
+    { timeout: 60_000 }, async t => {
+      if (!await available(t)) return;
+      const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+      c.authStatus = scenario.status;
+      if (scenario.expired) c.authExpiresAt = new Date(Date.now() - 60_000).toISOString();
+      const result = await run(c, 'check-children');
+      assert.equal(result.code, 1); assert.match(result.stderr, scenario.error);
+      assert.equal(result.privateKeyProvided, false, 'This failure must occur with stdin still open and empty.');
+      assert.deepEqual(c.authRequests, [{ keyInputProvided: false, preparationTransactions: 0 }]);
+      assert.equal(c.submissions.length, 0); assert.equal(c.apiRequests.length, 0);
+      assert.equal(c.finalSimulations.length, 0);
+      assert.equal((await state(c)).factory, null); assert.equal((await state(c)).pending, null);
+      assert.equal(await c.provider.getTransactionCount(WALLET), 0);
+      assert.equal(await c.nft.total(), 0n);
+    });
+}
+
+test('Rust CLI check-children API 422 preserves both prepared children and sends no mint transaction',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 }); c.apiStatus = 422;
+    const result = await run(c, 'check-children');
+    assert.equal(result.code, 1); assert.equal(result.privateKeyProvided, true);
+    assert.match(result.stderr, /CHILD_ELIGIBILITY_INCONCLUSIVE/);
+    await checkedChildrenRemainUnspent(c);
+    assert.equal(c.authRequests.length, 1);
+    assert.equal(c.apiRequests.length, 2, 'Check both children once without eligibility retries.');
+    assert.equal(c.finalSimulations.length, 0);
+    const checks = result.events.filter(event => event.event === 'child_check_result');
+    assert.equal(checks.length, 1); assert.equal(checks[0].passed, false); assert.equal(checks[0].mintSent, false);
+  });
+
+test('Rust CLI check-children rejects a one-request write quota before reading a private key or preparing contracts',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 2, minQuantity: 2 });
+    c.authRateLimits = { read: '600/h', write: '1/h', fulfillment: '5/m' };
+    const result = await run(c, 'check-children');
+    assert.equal(result.code, 1); assert.match(result.stderr, /EPHEMERAL_API_QUOTA_TOO_SMALL/);
+    assert.equal(result.privateKeyProvided, false);
+    assert.deepEqual(c.authRequests, [{ keyInputProvided: false, preparationTransactions: 0 }]);
+    assert.equal(c.apiRequests.length, 0); assert.equal(c.submissions.length, 0);
+    assert.equal(c.finalSimulations.length, 0);
+    assert.equal((await state(c)).factory, null); assert.equal((await state(c)).pending, null);
+    assert.equal(await c.provider.getTransactionCount(WALLET), 0);
+  });
+
+test('Rust CLI check-children recovers a previous pending mint without reporting that the child check passed or sending again',
+  { timeout: 90_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t);
+    success(await run(c, 'prepare', { quantity: 12 }));
+    c.loseMintAck = true;
+    const first = await run(c, 'start');
+    assert.equal(first.code, 1); assert.match(first.stderr, /UNRESOLVED_TRANSACTION/);
+    assert.equal(await c.nft.balanceOf(WALLET), 10n);
+    assert.equal((await state(c)).pending.action.kind, 'mint');
+    const sent = c.submissions.length, requested = c.apiRequests.length;
+    assert.equal(sent, 3); assert.equal(requested, 10);
+    c.loseMintAck = false; c.hideReceipt = null;
+    const result = await run(c, 'check-children', { quantity: 2, minQuantity: 2 });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /PENDING_MINT_RECOVERED_CHILD_CHECK_NOT_PERFORMED_RERUN_CHECK/);
+    assert.equal(result.privateKeyProvided, false);
+    assert.equal(c.authRequests.length, 0); assert.equal(c.apiRequests.length, requested);
+    assert.equal(c.submissions.length, sent, 'Reconciliation cannot consume the two remaining unused children.');
+    assert.equal((await state(c)).pending, null);
+    assert.ok(result.events.some(event => event.event === 'recovered_existing_mint_no_new_submission'));
+    assert.ok(!result.events.some(event => event.event === 'child_check_result' && event.passed));
+    assert.equal(await c.nft.balanceOf(WALLET), 10n); assert.equal(await c.nft.total(), 10n);
+    const factory = new Contract((await state(c)).factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    assert.equal(await factory.childCount(), 12n);
+    for (const index of [10, 11]) {
+      const child = new Contract(await factory.children(index), ARTIFACT.contracts.GenesisMintChild.abi, c.provider);
+      assert.equal(await child.spent(), false);
+    }
+  });
+
+test('Rust CLI check-children rejects quantity one before any API or private-key input',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { quantity: 1, minQuantity: 1 });
+    const result = await run(c, 'check-children');
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /CHILD_CHECK_REQUIRES_QUANTITY_2_MINIMUM_2_SIGNED_MODE/);
+    assert.equal(result.privateKeyProvided, false);
+    assert.equal(c.authRequests.length, 0); assert.equal(c.apiRequests.length, 0);
+    assert.equal(c.submissions.length, 0); assert.equal(c.calls.length, 0);
+    assert.equal(await c.provider.getTransactionCount(WALLET), 0);
+    assert.equal(await c.nft.total(), 0n);
+  });
 
 test('Rust CLI quantity1 uses a direct signed mint and deploys no factory', { timeout: 60_000 }, async t => {
   if (!await available(t)) return;
