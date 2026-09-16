@@ -95,6 +95,9 @@ sudo journalctl -u vinos-robinhood-node.service -n 30 --no-pager
 
 The status helper is read-only. It reports service state, capacity, `eth_syncing`,
 chain ID, local head age, and the difference from an independent public head.
+Its reference request sets a User-Agent accepted by the public endpoint; the
+default Python urllib User-Agent received an HTTP error from this host, while
+the explicit header was verified against both official RPC and PublicNode.
 One observation does not establish readiness. Before switching a minter, verify
 several fresh heads, chain ID 4663, completed syncing, the expected NFT runtime
 and state, and successful representative simulations. Keep the existing reader
@@ -131,7 +134,7 @@ filesystem reports 4,997,590,810,624 bytes total and, at the second observation,
 4,949,826,854,912 bytes available. Nitro was waiting for its snapshot dependency
 with zero restarts; unavailable local RPC during this stage is expected.
 
-The reviewed bootstrap, placeholder spec, and regression tests are versioned
+The reviewed bootstrap, status helper, placeholder spec, and regression tests are versioned
 under `ops/robinhood-node/`. The default bootstrap mode is read-only planning;
 the actual spec must name the intended instance and its observed blank disks.
 Local operational evidence and instance-specific files are retained under
