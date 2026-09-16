@@ -39,6 +39,9 @@ struct Args {
     /// Authorize requested writes. Check-children only writes preparation, never mint.
     #[arg(long)]
     send: bool,
+    /// Override the maximum NFT count (1..=100); minimum still comes from config.
+    #[arg(long)]
+    quantity: Option<u16>,
     /// Isolated tests only: all RPCs must use literal loopback addresses.
     #[arg(long, hide = true)]
     local_test: bool,
@@ -122,7 +125,11 @@ fn entry() -> Result<u8> {
         args.local_test || (!args.test_secrets_stdin && args.test_api_origin.is_none()),
         "LOCAL_TEST_OPTIONS_FORBIDDEN_IN_PRODUCTION"
     );
-    let cfg = Config::load(&args.config, args.local_test)?;
+    let mut cfg = Config::load(&args.config, args.local_test)?;
+    if let Some(quantity) = args.quantity {
+        cfg.quantity = quantity;
+        cfg.validate(args.local_test)?;
+    }
     if matches!(args.action, Action::CheckChildren) {
         ensure!(
             cfg.quantity == 2 && cfg.min_quantity == 2 && cfg.mode == Mode::Signed,

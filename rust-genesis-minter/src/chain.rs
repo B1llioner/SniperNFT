@@ -186,13 +186,16 @@ pub async fn snapshot(
     })
 }
 impl Drop {
-    pub fn active(&self, time: u64) -> bool {
+    pub fn available_now_or_later(&self, time: u64) -> bool {
         self.free
             && self.fee_allowed
             && self.wallet_limit > 0
-            && self.start <= time
-            && time <= self.end
+            && self.end >= self.start
+            && self.end >= time
             && self.end > 0
+    }
+    pub fn active(&self, time: u64) -> bool {
+        self.available_now_or_later(time) && self.start <= time
     }
 }
 

@@ -88,13 +88,13 @@ async function deploy(owner, artifact, args = []) {
   await value.deploymentTransaction().wait();
   return value;
 }
-async function fixture(t, overrides = {}) {
+async function fixture(t, overrides = {}, { initialSupply = 0 } = {}) {
   const provider = await anvil(t);
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'vinos-genesis-cli-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const owner = await provider.getSigner(0);
   const fee = await (await provider.getSigner(1)).getAddress();
-  const nft = await deploy(owner, fixtureArtifact('MockGenesisChildNFT'), [0, 1024]);
+  const nft = await deploy(owner, fixtureArtifact('MockGenesisChildNFT'), [initialSupply, 1024]);
   const signer = Wallet.createRandom();
   const route = await deploy(owner, fixtureArtifact('MockGenesisChildSeaDrop'), [signer.address, fee]);
   await (await nft.setRoute(route.target)).wait();
@@ -104,18 +104,25 @@ async function fixture(t, overrides = {}) {
     headLag: null, activeHeadLag: null, laggedReceipts: new Set(), sentActions: new Map(),
     laggedHeads: [], runtimeReads: [], pendingNonceBehindBy: 0, nonceReads: [],
     factoryRuntimeFault: null, factoryRuntimeFaultReads: 0,
+    rpcBeforeHook: null, rpcAfterHook: null, rpcResponseHook: null, submissionHeads: [],
     finalSimulations: [], finalSimulationFault: null };
   const stateRoot = join(directory, 'registry');
   const statePath = join(stateRoot, `4663-${WALLET}`, 'state.json');
+  const connections = new WeakMap();
+  let nextConnection = 0;
   const rpcServer = createServer(async (req, res) => {
     let rpc;
     try {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
       rpc = JSON.parse(Buffer.concat(chunks).toString());
       assert.equal(rpc.jsonrpc, '2.0'); assert.ok(Array.isArray(rpc.params));
-      context.calls.push({ route: req.url, method: rpc.method });
+      if (!connections.has(req.socket)) connections.set(req.socket, ++nextConnection);
+      context.calls.push({ route: req.url, method: rpc.method, connection: connections.get(req.socket),
+        invocation: context.invocations.length });
       if (req.url === '/reader') assert.notEqual(rpc.method, 'eth_sendRawTransaction', 'Reader never broadcasts.');
       else assert.ok(['eth_chainId', 'eth_sendRawTransaction'].includes(rpc.method), 'Sender only warms/submits.');
+      if (context.rpcResponseHook && await context.rpcResponseHook(rpc, req.url, res)) return;
+      if (context.rpcBeforeHook) await context.rpcBeforeHook(rpc, req.url);
       let result;
       if (rpc.method === 'eth_sendRawTransaction') {
         const tx = Transaction.from(rpc.params[0]);
@@ -125,6 +132,8 @@ async function fixture(t, overrides = {}) {
         assert.equal(saved.pending.nonce, tx.nonce);
         context.submissions.push(tx);
         context.sentActions.set(tx.hash, saved.pending.action.kind);
+        context.submissionHeads.push({ action: saved.pending.action.kind,
+          head: await provider.send('eth_getBlockByNumber', ['latest', false]) });
         result = await provider.send(rpc.method, rpc.params);
         if (context.loseMintAck && saved.pending.action.kind === 'mint') {
           context.hideReceipt = tx.hash;
@@ -165,13 +174,15 @@ async function fixture(t, overrides = {}) {
       }
       const call = rpc.params[0];
       if (rpc.method === 'eth_call' && call.gas && call.from?.toLowerCase() === WALLET.toLowerCase()
-        && [BATCH_SELECTOR, route.interface.getFunction('mintSigned').selector].includes(call.data?.slice(0, 10))) {
+        && [BATCH_SELECTOR, route.interface.getFunction('mintSigned').selector,
+          route.interface.getFunction('mintPublic').selector].includes(call.data?.slice(0, 10))) {
         // Only the final exact-gas transaction simulation is faulted. Every
         // per-child simulation and the gas estimate execute normally in Anvil.
         context.finalSimulations.push({ to: call.to, gas: call.gas, result });
         if (context.finalSimulationFault?.delayMs) await delay(context.finalSimulationFault.delayMs);
         if (context.finalSimulationFault?.result !== undefined) result = context.finalSimulationFault.result;
       }
+      if (context.rpcAfterHook) await context.rpcAfterHook(rpc, result, req.url);
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result }));
     } catch (error) {
@@ -181,6 +192,9 @@ async function fixture(t, overrides = {}) {
         error: { code: -32000, message: 'Local fixture RPC error', data: error.data ?? error.info?.error?.data } }));
     }
   });
+  // The fixture intentionally permits idle persistence beyond the CLI's 10 s
+  // heartbeat. Node's default 5 s keepalive would independently close sockets.
+  rpcServer.keepAliveTimeout = 60_000;
   const rpcPort = await listen(rpcServer); t.after(() => close(rpcServer));
   const apiServer = createServer(async (req, res) => {
     try {
@@ -240,12 +254,13 @@ async function fixture(t, overrides = {}) {
   Object.assign(context, { config, statePath, stateRoot, apiOrigin: `http://127.0.0.1:${apiPort}` });
   return context;
 }
-async function run(c, action, overrides = {}) {
+async function run(c, action, overrides = {}, extraArgs = []) {
   const configPath = join(c.directory, 'config.json');
   await writeFile(configPath, JSON.stringify({ ...c.config, ...overrides }), { mode: 0o600 });
   const args = [action, '--config', configPath, '--state-dir', c.stateRoot, '--local-test',
     '--test-api-origin', c.apiOrigin, '--test-secrets-stdin'];
   if (!['recover', 'preflight'].includes(action)) args.push('--send');
+  args.push(...extraArgs);
   const invocation = { action, privateKeyProvided: false };
   c.invocations.push(invocation); c.activeInvocation = invocation;
   const child = spawn(BINARY, args, { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -267,7 +282,9 @@ async function run(c, action, overrides = {}) {
   child.stdin.on('error', () => {});
   if (action !== 'check-children') {
     invocation.privateKeyProvided = true;
-    child.stdin.end(`${KEY}\n${API_KEY}\n`);
+    // Public mode must work with exactly one hidden wallet-key input and no
+    // OpenSea credential, even for the full preparation/wait/mint command.
+    child.stdin.end((overrides.mode ?? c.config.mode) === 'public' ? `${KEY}\n` : `${KEY}\n${API_KEY}\n`);
   }
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   clearTimeout(timer);
@@ -632,6 +649,267 @@ test('Rust CLI prepare then start reuses the saved factory without deployment or
   assert.equal(c.submissions.filter(tx => tx.to === null).length, 1);
   assert.equal(await c.nft.balanceOf(WALLET), 10n);
 });
+
+async function publicDrop(c, start, end = start + 3600, extra = {}) {
+  await (await c.route.setDrop({ mintPrice: 0, startTime: start, endTime: end,
+    maxTotalMintableByWallet: 1, feeBps: 1000, restrictFeeRecipients: true, ...extra })).wait();
+}
+async function mineAt(c, timestamp) {
+  await c.provider.send('evm_setNextBlockTimestamp', [timestamp]);
+  await c.provider.send('evm_mine', []);
+}
+function isPublicDropRead(c, rpc) {
+  return rpc.method === 'eth_call' && rpc.params[0].to?.toLowerCase() === c.route.target.toLowerCase()
+    && rpc.params[0].data?.slice(0, 10) === c.route.interface.getFunction('getPublicDrop').selector;
+}
+function noOpenSea(c) {
+  assert.equal(c.apiRequests.length, 0, 'Public mint parameters are constructed from approved onchain state.');
+  assert.equal(c.authRequests.length, 0, 'Public mode needs no automatic API key.');
+}
+
+test('Rust CLI public setup reuses two children, adds eight, waits for tomorrow onchain, and mints ten without an API key',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 10, minQuantity: 1 }, { initialSupply: 910 });
+    success(await run(c, 'prepare', { quantity: 2 }));
+    const saved = await state(c);
+    const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    const existing = [await factory.children(0), await factory.children(1)];
+    const start = (await c.provider.getBlock('latest')).timestamp + 86410;
+    await publicDrop(c, start);
+    let opened = false;
+    c.rpcAfterHook = async rpc => {
+      if (!opened && c.submissions.length === 3 && isPublicDropRead(c, rpc)) {
+        // The first waiting snapshot remains at its genuine pre-opening block;
+        // advance only the chain, so the next poll must discover the open stage.
+        opened = true;
+        assert.equal(c.finalSimulations.length, 0);
+        assert.equal(await c.nft.balanceOf(WALLET), 0n);
+        await mineAt(c, start);
+      }
+    };
+    const result = await run(c, 'setup', { waitTimeoutSecs: 172800 }); success(result);
+    assert.equal(opened, true); noOpenSea(c);
+    assert.equal((await state(c)).factory, saved.factory);
+    assert.equal(c.submissions.length, 4, 'Two original preparation transactions, eight extra children, one mint.');
+    assert.equal(c.submissions.filter(tx => tx.to === null).length, 1);
+    assert.equal(FACTORY_INTERFACE.decodeFunctionData('prepareChildren', c.submissions[2].data)[0], 8n);
+    assert.deepEqual([await factory.children(0), await factory.children(1)], existing);
+    assert.equal(await factory.childCount(), 10n); assert.equal(await c.nft.total(), 920n);
+    for (let id = 911; id <= 920; ++id) assert.equal(await c.nft.ownerOf(id), WALLET);
+    assert.ok(result.events.some(event => event.event === 'waiting' && event.pollIntervalMs === 10000
+      && event.waitTimeoutSecs === 172800));
+    assert.ok(result.events.some(event => event.event === 'mint_result' && event.minted === 10));
+    const mintHeads = c.submissionHeads.filter(entry => entry.action === 'mint');
+    assert.equal(mintHeads.length, 1); assert.ok(BigInt(mintHeads[0].head.timestamp) >= BigInt(start));
+    assert.equal(c.finalSimulations.length, 1); assert.equal(BigInt(c.finalSimulations[0].result), 10n);
+  });
+
+test('Rust CLI public start discards a cached batch when the onchain window moves forward and waits without a failed preflight',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 2 });
+    success(await run(c, 'prepare'));
+    const release = (await c.provider.getBlock('latest')).timestamp + 5;
+    const movedStart = release + 20;
+    let dropReads = 0;
+    c.rpcAfterHook = async rpc => {
+      if (!isPublicDropRead(c, rpc)) return;
+      ++dropReads;
+      if (dropReads === 3) {
+        // Main preflight, execute preflight, first waiting snapshot. Its public
+        // payload is ready, but the local release boundary has not been reached.
+        await publicDrop(c, movedStart);
+        await mineAt(c, release);
+      } else if (dropReads === 5) {
+        assert.equal(c.submissions.length, 2, 'Reaching the old release time must not cause a mint.');
+        assert.equal(c.finalSimulations.length, 0);
+        await mineAt(c, movedStart);
+      }
+    };
+    const result = await run(c, 'start', { waitUntilTimestamp: release }); success(result);
+    noOpenSea(c); assert.ok(dropReads >= 5);
+    assert.equal(c.submissions.length, 3); assert.equal(await c.nft.balanceOf(WALLET), 2n);
+    assert.equal(result.events.filter(event => event.event === 'preparation_invalidated').length, 0,
+      'A legitimate stage-time change is waiting, not a failed simulation attempt.');
+    assert.ok(result.events.some(event => event.event === 'waiting' && event.pollIntervalMs === 250));
+    const mint = c.submissionHeads.find(entry => entry.action === 'mint');
+    assert.ok(BigInt(mint.head.timestamp) >= BigInt(movedStart));
+  });
+
+test('Rust CLI public setup stops before any paid preparation when already sold out', { timeout: 60_000 }, async t => {
+  if (!await available(t)) return;
+  const c = await fixture(t, { mode: 'public' }, { initialSupply: 1024 });
+  const result = await run(c, 'setup'); assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /INSUFFICIENT_REMAINING_SUPPLY|SOLD_OUT/);
+  assert.equal(c.submissions.length, 0); assert.equal((await state(c)).factory, null); noOpenSea(c);
+});
+
+for (const reason of ['paid', 'wallet limit zero', 'expired']) {
+  test(`Rust CLI public setup rejects a ${reason} window before deploying any contracts`, { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', waitTimeoutSecs: 2 });
+    const now = (await c.provider.getBlock('latest')).timestamp;
+    await publicDrop(c, 1, reason === 'expired' ? now - 1 : now + 3600,
+      reason === 'paid' ? { mintPrice: 1 } : reason === 'wallet limit zero' ? { maxTotalMintableByWallet: 0 } : {});
+    const result = await run(c, 'setup'); assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /PUBLIC|ELIGIBLE|WINDOW/);
+    assert.equal(c.submissions.length, 0, 'A known ineligible stage must not spend gas on preparation.');
+    assert.equal((await state(c)).factory, null); noOpenSea(c);
+  });
+}
+
+test('Rust CLI public start notices a competing last mint while waiting and leaves its child unspent',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 2 }, { initialSupply: 1023 });
+    success(await run(c, 'prepare'));
+    const saved = await state(c);
+    const start = (await c.provider.getBlock('latest')).timestamp + 20;
+    await publicDrop(c, start);
+    let reads = 0, competitorMinted = false;
+    c.rpcAfterHook = async rpc => {
+      if (isPublicDropRead(c, rpc) && ++reads === 3) {
+        await mineAt(c, start);
+        await (await c.route.mintPublic(c.nft.target, c.fee, await c.owner.getAddress(), 1)).wait();
+        competitorMinted = true;
+      }
+    };
+    const result = await run(c, 'start'); assert.notEqual(result.code, 0);
+    assert.equal(competitorMinted, true); assert.match(result.stderr, /SOLD_OUT_OR_BELOW_MINIMUM/);
+    assert.equal(c.submissions.length, 2); assert.equal(c.finalSimulations.length, 0);
+    assert.equal(await c.nft.total(), 1024n); assert.equal(await c.nft.balanceOf(WALLET), 0n);
+    const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    assert.equal(await factory.childCount(), 1n);
+    const child = new Contract(await factory.children(0), ARTIFACT.contracts.GenesisMintChild.abi, c.provider);
+    assert.equal(await child.spent(), false); assert.equal((await state(c)).pending, null); noOpenSea(c);
+  });
+
+test('Rust CLI public batch adapts when a competitor leaves only three NFTs after the final simulation',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 10, minQuantity: 1 }, { initialSupply: 1020 });
+    let competitorMinted = false;
+    c.rpcBeforeHook = async rpc => {
+      if (rpc.method !== 'eth_sendRawTransaction') return;
+      const tx = Transaction.from(rpc.params[0]);
+      if (tx.data.slice(0, 10) !== BATCH_SELECTOR) return;
+      assert.equal(c.finalSimulations.length, 1); assert.equal(BigInt(c.finalSimulations[0].result), 4n);
+      await (await c.route.mintPublic(c.nft.target, c.fee, await c.owner.getAddress(), 1)).wait();
+      competitorMinted = true;
+    };
+    const result = await run(c, 'setup'); success(result);
+    assert.equal(competitorMinted, true); noOpenSea(c);
+    assert.equal(c.submissions.length, 3); assert.equal(await c.nft.total(), 1024n);
+    assert.equal(await c.nft.balanceOf(WALLET), 3n);
+    assert.equal(await c.nft.ownerOf(1021), await c.owner.getAddress());
+    for (let id = 1022; id <= 1024; ++id) assert.equal(await c.nft.ownerOf(id), WALLET);
+    assert.ok(result.events.some(event => event.event === 'mint_result' && event.minted === 3 && event.requested === 10));
+    const factory = new Contract((await state(c)).factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    assert.equal(await factory.childCount(), 4n);
+    const unused = new Contract(await factory.children(3), ARTIFACT.contracts.GenesisMintChild.abi, c.provider);
+    assert.equal(await unused.spent(), false);
+    assert.equal((await state(c)).pending, null);
+  });
+
+test('Rust CLI public quantity override one mints directly without a factory or OpenSea key', { timeout: 60_000 }, async t => {
+  if (!await available(t)) return;
+  const c = await fixture(t, { mode: 'public', quantity: 10 });
+  const result = await run(c, 'setup', {}, ['--quantity', '1']); success(result);
+  assert.equal(c.submissions.length, 1); assert.equal(c.submissions[0].to, c.route.target);
+  assert.equal(c.submissions[0].data.slice(0, 10), c.route.interface.getFunction('mintPublic').selector);
+  assert.equal(await c.nft.ownerOf(1), WALLET); assert.equal((await state(c)).factory, null);
+  assert.equal(c.finalSimulations.length, 1); noOpenSea(c);
+});
+
+for (const [secondsUntilStart, expectedPollMs] of [[31, 1000], [30, 250]]) {
+  test(`Rust CLI public wait uses ${expectedPollMs} ms polling at the ${secondsUntilStart}-second opening boundary`,
+    { timeout: 60_000 }, async t => {
+      if (!await available(t)) return;
+      const c = await fixture(t, { mode: 'public', quantity: 1 });
+      const dropBlockTime = (await c.provider.getBlock('latest')).timestamp + 1;
+      const start = dropBlockTime + secondsUntilStart;
+      await c.provider.send('evm_setNextBlockTimestamp', [dropBlockTime]);
+      await publicDrop(c, start);
+      assert.equal((await c.provider.getBlock('latest')).timestamp, dropBlockTime);
+      let reads = 0;
+      c.rpcAfterHook = async rpc => {
+        if (isPublicDropRead(c, rpc) && ++reads === 3) await mineAt(c, start);
+      };
+      const result = await run(c, 'start'); success(result);
+      const waiting = result.events.filter(event => event.event === 'waiting');
+      assert.ok(waiting.length >= 1); assert.equal(waiting[0].pollIntervalMs, expectedPollMs);
+      assert.equal(waiting[0].chainTimestamp, dropBlockTime);
+      assert.equal(c.submissions.length, 1); assert.equal(await c.nft.ownerOf(1), WALLET); noOpenSea(c);
+    });
+}
+
+test('Rust CLI public waiting keeps one sender connection through a transient heartbeat error and then mints',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 2, waitTimeoutSecs: 35 });
+    success(await run(c, 'prepare'));
+    const start = (await c.provider.getBlock('latest')).timestamp + 3600;
+    await publicDrop(c, start);
+    let healthChecks = 0;
+    c.rpcBeforeHook = async (rpc, route) => {
+      if (route !== '/sender' || rpc.method !== 'eth_chainId') return;
+      ++healthChecks;
+      if (healthChecks === 2) throw Object.assign(new Error('Synthetic temporary publisher failure'), { code: 'UNKNOWN_ERROR' });
+      if (healthChecks === 3) await mineAt(c, start);
+    };
+    const result = await run(c, 'start'); success(result);
+    assert.ok(healthChecks >= 3, 'Initial warmup, failed heartbeat, recovered heartbeat must all run.');
+    const healthCalls = c.calls.filter(call => call.invocation === 2 && call.route === '/sender' && call.method === 'eth_chainId');
+    assert.equal(new Set(healthCalls.map(call => call.connection)).size, 1, 'Health retries reuse the existing HTTP client/socket.');
+    assert.equal(c.submissions.length, 3); assert.equal(await c.nft.balanceOf(WALLET), 2n);
+    assert.ok(result.events.some(event => event.event === 'waiting')); noOpenSea(c);
+  });
+
+for (const permanent of [false, true]) {
+  test(`Rust CLI public heartbeat ${permanent ? 'stops after three HTTP 503 failures with no mint' : 'reconnects after HTTP 503 and mints without resending preparation'}`,
+    { timeout: 60_000 }, async t => {
+      if (!await available(t)) return;
+      const c = await fixture(t, { mode: 'public', quantity: 2, waitTimeoutSecs: 35 });
+      success(await run(c, 'prepare'));
+      const saved = await state(c);
+      const start = (await c.provider.getBlock('latest')).timestamp + 3600;
+      await publicDrop(c, start);
+      let healthChecks = 0;
+      c.rpcResponseHook = async (rpc, route, res) => {
+        if (route !== '/sender' || rpc.method !== 'eth_chainId') return false;
+        ++healthChecks;
+        if (healthChecks === 2 || (permanent && healthChecks > 2)) {
+          res.writeHead(503, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ diagnostic: `private proxy response ${API_KEY}` }));
+          return true;
+        }
+        if (healthChecks === 3) await mineAt(c, start);
+        return false;
+      };
+      const result = await run(c, 'start');
+      const healthCalls = c.calls.filter(call => call.invocation === 2 && call.route === '/sender'
+        && call.method === 'eth_chainId');
+      assert.equal(healthCalls[1].connection, healthCalls[0].connection,
+        'The first heartbeat uses the already warmed connection.');
+      assert.notEqual(healthCalls[2].connection, healthCalls[1].connection,
+        'A transport-poisoned client must be replaced before the next health request.');
+      noOpenSea(c); assert.equal((await state(c)).factory, saved.factory);
+      if (permanent) {
+        assert.notEqual(result.code, 0); assert.match(result.stderr, /ALL_WARMED_SENDERS_UNAVAILABLE/);
+        assert.equal(healthChecks, 4, 'One initial warmup followed by exactly three failed health requests.');
+        assert.equal(result.events.filter(event => event.event === 'sender_health_failed').length, 3);
+        assert.equal(c.submissions.length, 2); assert.equal(c.finalSimulations.length, 0);
+        assert.equal(await c.nft.balanceOf(WALLET), 0n);
+        assert.equal((await state(c)).gas_cost_wei, saved.gas_cost_wei);
+      } else {
+        success(result); assert.ok(healthChecks >= 3);
+        assert.equal(c.submissions.length, 3); assert.equal(await c.nft.balanceOf(WALLET), 2n);
+        assert.equal(c.submissions.filter(tx => tx.to === null).length, 1);
+      }
+      assert.equal((await state(c)).pending, null);
+    });
+}
 
 test('Rust CLI stops after three consecutive API eligibility failures without any signed transaction', { timeout: 60_000 }, async t => {
   if (!await available(t)) return;

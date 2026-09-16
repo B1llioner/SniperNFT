@@ -331,7 +331,7 @@ impl Config {
             "INVALID_FINAL_FRESHNESS"
         );
         ensure!(
-            (1..=86_400).contains(&self.wait_timeout_secs)
+            (1..=172_800).contains(&self.wait_timeout_secs)
                 && (1..=600).contains(&self.receipt_timeout_secs),
             "INVALID_WAIT_TIMEOUT"
         );
@@ -379,6 +379,16 @@ mod tests {
         for s in ["-1", "1e9", " 1", "1.2.3", "0.0000000001"] {
             assert!(decimal_units(s, 9).is_err());
         }
+    }
+    #[test]
+    fn permits_bounded_two_day_wait() {
+        let mut c = config();
+        c.wait_timeout_secs = 172_800;
+        c.validate(false).unwrap();
+        c.wait_timeout_secs += 1;
+        assert!(c.validate(false).is_err());
+        c.wait_timeout_secs = 0;
+        assert!(c.validate(false).is_err());
     }
     #[test]
     fn rejects_unknown_secret_config() {

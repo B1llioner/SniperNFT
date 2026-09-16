@@ -16,8 +16,9 @@ const FIXED = [
 ];
 const sha = data => createHash('sha256').update(data).digest('hex');
 
-export async function sourceFiles(root = ROOT) {
-  const files = [...FIXED];
+export async function sourceFiles(root = ROOT, profile = 'check') {
+  if (!['check', 'mint'].includes(profile)) throw new Error('Invalid package profile');
+  const files = [...FIXED, ...(profile === 'mint' ? ['docs/GENESIS_MINT_SERVER.md'] : [])];
   for (const crate of CRATES) {
     const entries = await readdir(path.join(root, crate, 'src'), { withFileTypes: true });
     for (const entry of entries) {
@@ -43,11 +44,13 @@ async function archive(directory, output, files) {
   return { sha256: sha(data), bytes: data.length };
 }
 
-export async function packageKit(outputDirectory, root = ROOT) {
+export async function packageKit(outputDirectory, root = ROOT, profile = 'check') {
+  if (!['check', 'mint'].includes(profile)) throw new Error('Invalid package profile');
+  const prefix = `genesis-${profile}`;
   const output = path.resolve(outputDirectory);
   await mkdir(path.dirname(output), { recursive: true });
   await mkdir(output, { mode: 0o700 }); // Refuse accidental overwrite/repackaging.
-  const files = await sourceFiles(root);
+  const files = await sourceFiles(root, profile);
   const contents = await Promise.all(files.map(file => readFile(path.join(root, file))));
   if (contents.reduce((sum, body) => sum + body.length, 0) > 8 * 1024 * 1024) throw new Error('Sources exceed 8 MiB');
   const sourceManifest = { kind: 'vinos-genesis-source-v1', files: Object.fromEntries(files.map((file, i) => [file, sha(contents[i])])) };
@@ -60,15 +63,23 @@ export async function packageKit(outputDirectory, root = ROOT) {
     await writeFile(target, contents[i], { flag: 'wx', mode: 0o600 });
   }
   await writeFile(path.join(stage, 'source-manifest.json'), JSON.stringify(sourceManifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-  const source = await archive(stage, path.join(output, 'genesis-check-source.tgz'), [...files, 'source-manifest.json']);
-  await copyFile(path.join(root, 'scripts/install-genesis-check.sh'), path.join(output, 'install-genesis-check.sh'));
-  const installerSha256 = sha(await readFile(path.join(output, 'install-genesis-check.sh')));
-  const manifest = { kind: 'vinos-genesis-check-kit-v1', sourceArchive: 'genesis-check-source.tgz', ...source, installerSha256,
-    buildCommand: `bash install-genesis-check.sh build genesis-check-source.tgz ${source.sha256}`,
+  const sourceArchive = `${prefix}-source.tgz`;
+  const source = await archive(stage, path.join(output, sourceArchive), [...files, 'source-manifest.json']);
+  const installers = profile === 'mint' ? ['install-genesis-check.sh', 'install-genesis-mint.sh'] : ['install-genesis-check.sh'];
+  for (const installer of installers) {
+    const sourcePath = path.join(root, 'scripts', installer);
+    const info = await lstat(sourcePath);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 128 * 1024) throw new Error('Invalid installer file');
+    await copyFile(sourcePath, path.join(output, installer));
+  }
+  const installerHashes = Object.fromEntries(await Promise.all(installers.map(async name => [name, sha(await readFile(path.join(output, name)))])));
+  const installerSha256 = installerHashes[`install-${prefix}.sh`];
+  const manifest = { kind: `vinos-${prefix}-kit-v1`, sourceArchive, ...source, installerSha256, installerHashes,
+    buildCommand: `bash install-${prefix}.sh build ${sourceArchive} ${source.sha256}`,
     target: 'x86_64-unknown-linux-gnu', instanceId: 'i-0ef42c1e5475d7edb', region: 'us-east-2',
-    installRunsTransactions: false, launcher: 'vinos-genesis-check' };
+    installRunsTransactions: false, launcher: `vinos-${prefix}` };
   await writeFile(path.join(output, 'kit-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-  const kit = await archive(output, path.join(output, 'vinos-genesis-check-kit.tgz'), ['genesis-check-source.tgz', 'install-genesis-check.sh', 'kit-manifest.json']);
+  const kit = await archive(output, path.join(output, `vinos-${prefix}-kit.tgz`), [sourceArchive, ...installers, 'kit-manifest.json']);
   console.log(JSON.stringify({ directory: output, source, kit, command: manifest.buildCommand }));
   return manifest;
 }

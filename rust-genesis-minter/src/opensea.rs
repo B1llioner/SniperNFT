@@ -694,12 +694,14 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_covers_a_stalled_response_without_retry() {
+        // Allow loopback connection/request setup under concurrent test load;
+        // the intentional response stall must be what triggers the deadline.
         let (origin, server) =
-            fixture(vec![(response(200, BODY, ""), Duration::from_millis(120))]).await;
+            fixture(vec![(response(200, BODY, ""), Duration::from_secs(1))]).await;
         let client = OpenSeaClient::with_origin(
             key(),
             local_origin(&origin).unwrap(),
-            Duration::from_millis(20),
+            Duration::from_millis(200),
         )
         .unwrap();
         assert!(matches!(
@@ -919,15 +921,12 @@ mod tests {
             ));
             assert_eq!(server.await.unwrap().len(), 1);
         }
-        let (origin, server) = fixture(vec![(
-            response(201, KEY_BODY, ""),
-            Duration::from_millis(120),
-        )])
-        .await;
+        let (origin, server) =
+            fixture(vec![(response(201, KEY_BODY, ""), Duration::from_secs(1))]).await;
         assert!(matches!(
             OpenSeaClient::ephemeral_with_origin(
                 local_origin(&origin).unwrap(),
-                Duration::from_millis(20)
+                Duration::from_millis(200)
             )
             .await,
             Err(ApiError::Timeout)

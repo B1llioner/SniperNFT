@@ -15,7 +15,7 @@ use anyhow::{Result, ensure};
 use futures_util::{StreamExt, stream};
 use rust_mint_benchmark::{
     eth,
-    rpc::RpcClient,
+    rpc::{RpcClient, RpcError},
     signing::{Signer, TxRequest, predict_create},
 };
 use serde_json::{Value, json};
@@ -78,6 +78,41 @@ fn approve(cfg: &Config, route: &Route, minter: Address) -> ApprovedMint {
     }
 }
 
+fn public_windows(snapshot: &chain::Snapshot) -> Vec<Value> {
+    snapshot
+        .drops
+        .iter()
+        .map(|d| {
+            json!({
+                "seaDrop":d.route.sea_drop,"start":d.start,"end":d.end,
+                "active":d.active(snapshot.head.timestamp),"free":d.free,
+                "walletLimit":d.wallet_limit,"feeAllowed":d.fee_allowed
+            })
+        })
+        .collect()
+}
+
+// Re-read the actual on-chain schedule every 10 s while distant, and switch to
+// the configured interval 30 s before it. Local wall-clock time cannot release
+// a mint; moved windows are picked up on the next snapshot.
+fn wait_poll_delay(cfg: &Config, snapshot: &chain::Snapshot) -> Duration {
+    let near = Duration::from_millis(cfg.poll_interval_ms);
+    if cfg.mode != Mode::Public {
+        return near;
+    }
+    let until = snapshot
+        .drops
+        .iter()
+        .filter(|d| d.available_now_or_later(snapshot.head.timestamp))
+        .map(|d| d.start.saturating_sub(snapshot.head.timestamp))
+        .min();
+    match until {
+        Some(seconds) if seconds <= 30 => near,
+        Some(seconds) => Duration::from_secs((seconds - 30).min(10)).max(near),
+        None => Duration::from_secs(10),
+    }
+}
+
 impl Session {
     pub async fn open(cfg: Config, local: bool) -> Result<Self> {
         let reader = RpcClient::connect(&cfg.read_rpc, cfg.timeout()).await?;
@@ -132,18 +167,49 @@ impl Session {
         let mut kept = Vec::new();
         for (index, mut client) in self.senders.drain(..) {
             let url = &self.cfg.send_rpc_urls[index];
-            let result = if url.trim_end_matches('/') == SEQUENCER {
-                client
-                    .call("arb_checkPublisherHealth", json!([]))
-                    .await
-                    .map(|v| v.is_null())
-            } else {
-                client
-                    .call("eth_chainId", json!([]))
-                    .await
-                    .map(|v| eth::quantity64(&v).is_ok_and(|id| id == CHAIN_ID))
-            };
-            if matches!(result, Ok(true)) {
+            let mut healthy = false;
+            let mut reconnect = false;
+            for attempt in 1..=3 {
+                let result = async {
+                    // Transport errors poison RpcClient. Reconnect only for
+                    // this read-only heartbeat; never retry an ambiguous send.
+                    if reconnect {
+                        client = RpcClient::connect(url, self.cfg.timeout()).await?;
+                    }
+                    if url.trim_end_matches('/') == SEQUENCER {
+                        client
+                            .call("arb_checkPublisherHealth", json!([]))
+                            .await
+                            .map(|v| v.is_null())
+                    } else {
+                        client
+                            .call("eth_chainId", json!([]))
+                            .await
+                            .map(|v| eth::quantity64(&v).is_ok_and(|id| id == CHAIN_ID))
+                    }
+                }
+                .await;
+                match result {
+                    Ok(true) => {
+                        healthy = true;
+                        break;
+                    }
+                    // A valid response on a wrong chain is not a transient failure.
+                    Ok(false) => break,
+                    Err(error) => {
+                        reconnect = !matches!(error, RpcError::Remote { .. });
+                        println!(
+                            "{}",
+                            json!({"event":"sender_health_failed",
+                            "index":index,"consecutiveFailures":attempt,"reason":error.to_string()})
+                        );
+                        if attempt < 3 {
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                        }
+                    }
+                }
+            }
+            if healthy {
                 kept.push((index, client));
             } else {
                 println!("{}", json!({"event":"sender_removed","index":index}));
@@ -164,7 +230,7 @@ impl Session {
         }
         emit(
             store,
-            json!({"event":"preflight","chainId":CHAIN_ID,"wallet":self.cfg.wallet,"nft":self.cfg.nft,"factory":store.state.factory,"quantity":self.cfg.quantity,"remaining":snapshot.remaining,"block":snapshot.head.number,"chainTimestamp":snapshot.head.timestamp,"pendingHash":store.state.pending.as_ref().map(|p|p.hash),"publicWindows":snapshot.drops.iter().map(|d|json!({"seaDrop":d.route.sea_drop,"start":d.start,"end":d.end,"active":d.active(snapshot.head.timestamp)})).collect::<Vec<_>>() }),
+            json!({"event":"preflight","chainId":CHAIN_ID,"wallet":self.cfg.wallet,"nft":self.cfg.nft,"factory":store.state.factory,"quantity":self.cfg.quantity,"remaining":snapshot.remaining,"block":snapshot.head.number,"chainTimestamp":snapshot.head.timestamp,"pendingHash":store.state.pending.as_ref().map(|p|p.hash),"publicWindows":public_windows(&snapshot) }),
         )
         .await
     }
@@ -391,6 +457,14 @@ impl Session {
         ensure!(
             snap.remaining >= u64::from(self.cfg.min_quantity),
             "INSUFFICIENT_REMAINING_SUPPLY"
+        );
+        ensure!(
+            self.cfg.mode != Mode::Public
+                || snap
+                    .drops
+                    .iter()
+                    .any(|drop| drop.available_now_or_later(snap.head.timestamp)),
+            "NO_FREE_PUBLIC_WINDOW_FOR_PREPARATION"
         );
         if store.state.factory.is_none() {
             let artifact = Artifact::load("GenesisChildFactory")?;
@@ -662,7 +736,7 @@ impl Session {
         };
         let started = Instant::now();
         let mut last_heartbeat = Instant::now();
-        let mut last_progress = Instant::now();
+        let mut last_progress: Option<Instant> = None;
         let mut batch: Option<Batch> = None;
         let mut api_failures = 0u8;
         let mut simulation_failures = 0u8;
@@ -700,6 +774,10 @@ impl Session {
                             .iter()
                             .any(|p| p.payload.kind != MintKind::Public || p.route.sea_drop != a)
                     })
+                    || b.items.iter().any(|p| {
+                        p.payload.kind == MintKind::Public
+                            && active_public != Some(p.route.sea_drop)
+                    })
             });
             if stale {
                 batch = self
@@ -726,14 +804,15 @@ impl Session {
                     })
             });
             if !released || !time_ready {
-                if last_progress.elapsed() >= Duration::from_secs(10) {
+                let poll_delay = wait_poll_delay(&self.cfg, &snapshot);
+                if last_progress.is_none_or(|last| last.elapsed() >= Duration::from_secs(10)) {
                     emit(
                         store,
-                        json!({"event":"waiting","block":snapshot.head.number,"chainTimestamp":snapshot.head.timestamp,"remaining":snapshot.remaining,"payloadCount":batch.as_ref().map_or(0,|b|b.items.len())}),
+                        json!({"event":"waiting","block":snapshot.head.number,"chainTimestamp":snapshot.head.timestamp,"remaining":snapshot.remaining,"payloadCount":batch.as_ref().map_or(0,|b|b.items.len()),"publicWindows":public_windows(&snapshot),"pollIntervalMs":poll_delay.as_millis(),"waitTimeoutSecs":self.cfg.wait_timeout_secs}),
                     ).await?;
-                    last_progress = Instant::now();
+                    last_progress = Some(Instant::now());
                 }
-                tokio::time::sleep(Duration::from_millis(self.cfg.poll_interval_ms)).await;
+                tokio::time::sleep(poll_delay).await;
                 continue;
             }
             let ready = batch
