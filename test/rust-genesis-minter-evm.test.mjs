@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { access, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -117,9 +118,16 @@ async function fixture(t, overrides = {}, { initialSupply = 0 } = {}) {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
       rpc = JSON.parse(Buffer.concat(chunks).toString());
       assert.equal(rpc.jsonrpc, '2.0'); assert.ok(Array.isArray(rpc.params));
-      if (!connections.has(req.socket)) connections.set(req.socket, ++nextConnection);
-      context.calls.push({ route: req.url, method: rpc.method, connection: connections.get(req.socket),
-        invocation: context.invocations.length });
+      const reusedSocket = connections.has(req.socket);
+      if (!reusedSocket) connections.set(req.socket, ++nextConnection);
+      const recorded = { route: req.url, method: rpc.method, connection: connections.get(req.socket),
+        invocation: context.invocations.length, reusedSocket, startedAtMs: performance.now(),
+        finishedAtMs: null, target: rpc.params[0]?.to?.toLowerCase() ?? null,
+        selector: rpc.params[0]?.data?.slice(0, 10) ?? null,
+        block: ['eth_call', 'eth_getCode', 'eth_getBalance', 'eth_getTransactionCount'].includes(rpc.method)
+          ? rpc.params[1] : null };
+      context.calls.push(recorded);
+      res.once('finish', () => { recorded.finishedAtMs = performance.now(); });
       if (req.url === '/reader') assert.notEqual(rpc.method, 'eth_sendRawTransaction', 'Reader never broadcasts.');
       else assert.ok(['eth_chainId', 'eth_sendRawTransaction'].includes(rpc.method), 'Sender only warms/submits.');
       if (context.rpcResponseHook && await context.rpcResponseHook(rpc, req.url, res)) return;
@@ -255,23 +263,26 @@ async function fixture(t, overrides = {}, { initialSupply = 0 } = {}) {
   Object.assign(context, { config, statePath, stateRoot, apiOrigin: `http://127.0.0.1:${apiPort}` });
   return context;
 }
-async function run(c, action, overrides = {}, extraArgs = []) {
+async function run(c, action, overrides = {}, extraArgs = [], options = {}) {
   const configPath = join(c.directory, 'config.json');
   await writeFile(configPath, JSON.stringify({ ...c.config, ...overrides }), { mode: 0o600 });
   const args = [action, '--config', configPath, '--state-dir', c.stateRoot, '--local-test',
     '--test-api-origin', c.apiOrigin, '--test-secrets-stdin'];
-  if (!['recover', 'preflight'].includes(action)) args.push('--send');
+  const send = options.send ?? !['recover', 'preflight'].includes(action);
+  if (send) args.push('--send');
   args.push(...extraArgs);
   const invocation = { action, privateKeyProvided: false };
   c.invocations.push(invocation); c.activeInvocation = invocation;
-  const child = spawn(BINARY, args, { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
+  const startedAtMs = performance.now();
+  const child = spawn(options.binary ?? BINARY, args, { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '', stderr = '', timedOut = false, eventBuffer = '';
-  const eventTasks = [];
+  const eventTasks = [], eventTimes = [];
   child.stdout.on('data', data => {
     stdout += data;
     eventBuffer += data;
     const lines = eventBuffer.split('\n'); eventBuffer = lines.pop();
     for (const line of lines) {
+      if (line.startsWith('{')) eventTimes.push({ event: JSON.parse(line).event, atMs: performance.now() });
       if (c.eventHook && line.startsWith('{')) {
         eventTasks.push(Promise.resolve().then(() => c.eventHook(JSON.parse(line)))
           .catch(error => c.handlerFailures.push(error)));
@@ -290,7 +301,8 @@ async function run(c, action, overrides = {}, extraArgs = []) {
   child.stderr.on('data', data => { stderr += data; if (stderr.length > 262144) child.kill('SIGKILL'); });
   const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 45_000);
   child.stdin.on('error', () => {});
-  if (action !== 'check-children') {
+  if (options.provideSecrets === false) child.stdin.end();
+  else if (action !== 'check-children') {
     invocation.privateKeyProvided = true;
     // Public mode must work with exactly one hidden wallet-key input and no
     // OpenSea credential, even for the full preparation/wait/mint command.
@@ -304,6 +316,7 @@ async function run(c, action, overrides = {}, extraArgs = []) {
   assert.ok(!stdout.includes(API_KEY) && !stderr.includes(API_KEY), 'API key/error body must remain hidden.');
   assert.deepEqual(c.handlerFailures, []);
   return { code, stdout, stderr, privateKeyProvided: invocation.privateKeyProvided,
+    startedAtMs, finishedAtMs: performance.now(), eventTimes,
     events: stdout.split('\n').filter(line => line.startsWith('{')).map(JSON.parse) };
 }
 function success(result) { assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`); }
@@ -407,6 +420,189 @@ for (const scenario of [
       assert.equal(await c.nft.total(), 0n);
     });
 }
+
+function peakRequests(calls) {
+  const edges = calls.filter(call => Number.isFinite(call.finishedAtMs)).flatMap(call => [
+    [call.startedAtMs, 1], [call.finishedAtMs, -1],
+  ]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let active = 0, peak = 0;
+  for (const [, delta] of edges) { active += delta; peak = Math.max(peak, active); }
+  return peak;
+}
+
+function percentiles(values) {
+  assert.ok(values.length > 0 && values.every(value => Number.isFinite(value) && value >= 0));
+  const ordered = [...values].sort((a, b) => a - b);
+  const rank = percentile => ordered[Math.max(0, Math.ceil(ordered.length * percentile) - 1)];
+  return { count: ordered.length, min: ordered[0], p50: rank(0.5), p95: rank(0.95),
+    p99: rank(0.99), max: ordered.at(-1) };
+}
+
+async function preparedPublicFixture(t) {
+  const c = await fixture(t, { mode: 'public', quantity: 10, minQuantity: 10 }, { initialSupply: 910 });
+  const now = (await c.provider.getBlock('latest')).timestamp;
+  await publicDrop(c, now - 1, now + 86400);
+  return c;
+}
+
+test('Rust CLI local preflight benchmark', {
+  skip: !process.env.VINOS_PREFLIGHT_BENCHMARK, timeout: 35 * 60_000,
+}, async t => {
+  assert.equal(await available(t), true, 'Benchmark requires a built binary and Anvil.');
+  const options = JSON.parse(process.env.VINOS_PREFLIGHT_BENCHMARK);
+  assert.ok(Number.isInteger(options.samples) && options.samples >= 1 && options.samples <= 20);
+  assert.ok(Number.isInteger(options['delay-ms']) && options['delay-ms'] >= 1 && options['delay-ms'] <= 100);
+  for (const key of ['before', 'after', 'output']) assert.equal(typeof options[key], 'string');
+  const c = await preparedPublicFixture(t);
+  success(await run(c, 'prepare', {}, [], { binary: options.before }));
+  const stateBefore = await readFile(c.statePath, 'utf8');
+  const saved = JSON.parse(stateBefore);
+  const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+  assert.equal(await factory.childCount(), 10n);
+  const headBefore = await c.provider.send('eth_getBlockByNumber', ['latest', false]);
+  const nonceBefore = await c.provider.getTransactionCount(WALLET);
+  const initialSubmissions = c.submissions.length;
+  assert.equal(initialSubmissions, 2, 'Only the local factory deployment and preparation exist.');
+  c.rpcBeforeHook = async (_rpc, route) => { if (route === '/reader') await delay(options['delay-ms']); };
+  const variants = [
+    { name: 'baseline', binary: options.before, config: {}, limit: 1 },
+    { name: 'new-concurrency1', binary: options.after, config: { readConcurrency: 1 }, limit: 1 },
+    { name: 'new-concurrency4', binary: options.after, config: { readConcurrency: 4 }, limit: 4 },
+  ];
+  const samples = [], warmups = [];
+  // One unreported warmup per variant primes local EVM/OS caches. Each fresh
+  // minter process additionally warms its own sockets during startup reads.
+  // Rotate measured order, keeping the exact same chain and wallet state.
+  for (let round = -1; round < options.samples; ++round) {
+    const order = round < 0 ? variants : variants.map((_, i) => variants[(i + round) % variants.length]);
+    for (const variant of order) {
+      const result = await run(c, 'start', variant.config, [], {
+        binary: variant.binary, send: false, provideSecrets: false,
+      });
+      success(result); assert.equal(result.privateKeyProvided, false);
+      const events = result.events.filter(event => event.event === 'mint_preflight');
+      assert.equal(events.length, 1); const event = events[0];
+      assert.equal(event.send, false); assert.equal(event.predicted, 10); assert.equal(event.requested, 10);
+      assert.ok(Number.isFinite(event.preparationMs) && event.preparationMs > 0,
+        'Both binaries need identical finalize_batch preparationMs instrumentation.');
+      assert.equal(event.simulationBlock, Number(BigInt(headBefore.number)));
+      assert.equal(event.policyCheckedBlock, event.simulationBlock);
+      const reads = c.calls.filter(call => call.invocation === c.invocations.length && call.route === '/reader');
+      assert.ok(reads.every(call => Number.isFinite(call.finishedAtMs)));
+      assert.ok(reads.filter(call => !call.reusedSocket).every(call => call.method === 'eth_chainId'),
+        'Reader sockets must be warmed before any state or finalization reads.');
+      assert.ok(peakRequests(reads) <= variant.limit, 'Reader concurrency must respect its configured bound.');
+      if (variant.limit === 4) assert.ok(peakRequests(reads) > 1, 'Independent reads must overlap.');
+      const finalSimulation = reads.find(call => call.method === 'eth_call' && call.selector === BATCH_SELECTOR);
+      assert.ok(finalSimulation?.reusedSocket, 'The exact mint simulation uses an already-warmed reader socket.');
+      assert.equal(await readFile(c.statePath, 'utf8'), stateBefore);
+      assert.equal(c.submissions.length, initialSubmissions);
+      noOpenSea(c);
+      const sample = { round, variant: variant.name, preparationMs: event.preparationMs,
+        finalPreflightMs: event.finalPreflightMs, snapshotMs: event.snapshotMs ?? null,
+        childValidationMs: event.childValidationMs ?? null, quoteMs: event.quoteMs ?? null,
+        processMs: result.finishedAtMs - result.startedAtMs,
+        maxReadConcurrency: peakRequests(reads), readRequests: reads.length,
+        freshReaderConnections: reads.filter(call => !call.reusedSocket).length,
+        finalSimulationSocketReused: finalSimulation.reusedSocket,
+        predicted: event.predicted, simulationBlock: event.simulationBlock,
+        calls: reads.map(call => ({ method: call.method, selector: call.selector, block: call.block,
+          connection: call.connection, reusedSocket: call.reusedSocket,
+          startMs: call.startedAtMs - result.startedAtMs,
+          durationMs: call.finishedAtMs - call.startedAtMs })) };
+      (round < 0 ? warmups : samples).push(sample);
+      t.diagnostic(`${round < 0 ? 'warmup' : `sample ${round + 1}/${options.samples}`} ${variant.name}: `
+        + `${event.preparationMs.toFixed(1)} ms, peak readers ${sample.maxReadConcurrency}`);
+    }
+  }
+  assert.equal((await c.provider.send('eth_getBlockByNumber', ['latest', false])).hash, headBefore.hash);
+  assert.equal(await c.provider.getTransactionCount(WALLET), nonceBefore);
+  assert.equal(await c.nft.total(), 910n); assert.equal(await c.nft.balanceOf(WALLET), 0n);
+  for (let index = 0; index < 10; ++index) {
+    const child = new Contract(await factory.children(index), ARTIFACT.contracts.GenesisMintChild.abi, c.provider);
+    assert.equal(await child.spent(), false);
+  }
+  const summary = variants.map(variant => {
+    const selected = samples.filter(sample => sample.variant === variant.name);
+    return { variant: variant.name, preparationMs: percentiles(selected.map(sample => sample.preparationMs)),
+      finalPreflightMs: percentiles(selected.map(sample => sample.finalPreflightMs)),
+      processMs: percentiles(selected.map(sample => sample.processMs)),
+      maxReadConcurrency: Math.max(...selected.map(sample => sample.maxReadConcurrency)) };
+  });
+  const report = { kind: 'vinos-local-preflight-benchmark', schemaVersion: 1, completed: true,
+    quantity: 10, mode: 'public', initialSupply: 910, maximumSupply: 1024,
+    injectedReadDelayMs: options['delay-ms'], samplesPerVariant: options.samples,
+    block: Number(BigInt(headBefore.number)), blockHash: headBefore.hash,
+    localPreparationTransactions: initialSubmissions, benchmarkTransactions: 0,
+    notes: [
+      'Fresh nonforked Anvil. Production factory/child bytecode; NFT and SeaDrop are local test doubles.',
+      'preparationMs covers finalize_batch entry through final simulation and post-simulation policy checks.',
+      'No signing or broadcast in measured dry runs. Process time includes cold startup and is reported separately.',
+      'Fixed delay is added to every read RPC, including independent parallel requests; actual EVM execution adds time.',
+      'Percentiles use nearest rank; small samples do not characterize production p95/p99 or RPC rate limits.',
+    ],
+    binarySha256: { before: createHash('sha256').update(await readFile(options.before)).digest('hex'),
+      after: createHash('sha256').update(await readFile(options.after)).digest('hex') },
+    stateSha256: createHash('sha256').update(stateBefore).digest('hex'),
+    medianSpeedup: summary[0].preparationMs.p50 / summary[2].preparationMs.p50,
+    summary, warmups, samples };
+  await writeFile(options.output, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+});
+
+test('Rust CLI parallel public validation pins ten children to one block and joins before final simulation',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await preparedPublicFixture(t);
+    success(await run(c, 'prepare'));
+    const saved = await state(c), before = await readFile(c.statePath, 'utf8');
+    const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    const children = new Set(await Promise.all(Array.from({ length: 10 }, async (_, i) => (await factory.children(i)).toLowerCase())));
+    c.rpcBeforeHook = async (_rpc, route) => { if (route === '/reader') await delay(20); };
+    const result = await run(c, 'start', { readConcurrency: 4 }, [], { send: false, provideSecrets: false });
+    success(result); assert.equal(result.privateKeyProvided, false);
+    const reads = c.calls.filter(call => call.invocation === 2 && call.route === '/reader');
+    const childSimulations = reads.filter(call => call.method === 'eth_call' && children.has(call.target)
+      && call.selector === new Interface(ARTIFACT.contracts.GenesisMintChild.abi).getFunction('mint').selector);
+    assert.equal(childSimulations.length, 10);
+    assert.equal(new Set(childSimulations.map(call => call.block)).size, 1);
+    assert.match(childSimulations[0].block, /^0x[0-9a-f]+$/);
+    assert.ok(peakRequests(childSimulations) > 1); assert.ok(peakRequests(reads) <= 4);
+    const finalSimulation = reads.find(call => call.selector === BATCH_SELECTOR && call.method === 'eth_call');
+    assert.ok(finalSimulation);
+    assert.ok(childSimulations.every(call => call.finishedAtMs <= finalSimulation.startedAtMs));
+    assert.equal(result.events.find(event => event.event === 'mint_preflight').predicted, 10);
+    assert.equal(c.submissions.length, 2); assert.equal(await readFile(c.statePath, 'utf8'), before);
+    assert.equal(await c.nft.total(), 910n); noOpenSea(c);
+  });
+
+test('Rust CLI parallel child RPC failure amid outstanding reads prevents mint submission',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await preparedPublicFixture(t); success(await run(c, 'prepare'));
+    const saved = await state(c), before = await readFile(c.statePath, 'utf8');
+    const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    const badChild = (await factory.children(0)).toLowerCase();
+    const childSelector = new Interface(ARTIFACT.contracts.GenesisMintChild.abi).getFunction('mint').selector;
+    let failures = 0, hadOutstanding = false;
+    c.rpcResponseHook = async (rpc, route, res) => {
+      if (route !== '/reader') return false;
+      if (rpc.method === 'eth_call' && rpc.params[0].to?.toLowerCase() === badChild
+        && rpc.params[0].data?.slice(0, 10) === childSelector) {
+        await delay(30); ++failures;
+        hadOutstanding ||= c.calls.filter(call => call.invocation === 2 && call.finishedAtMs === null).length > 1;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, error: { code: -32000, message: 'fixture child failure' } }));
+        return true;
+      }
+      await delay(60); return false;
+    };
+    const result = await run(c, 'start', { readConcurrency: 4 });
+    assert.equal(result.code, 1); assert.ok(failures > 0 && failures <= 3); assert.equal(hadOutstanding, true);
+    assert.match(result.stderr, /THREE_CONSECUTIVE_PREFLIGHT_FAILURES_STOPPED|CHILD_VALIDATION_FAILED/);
+    assert.equal(c.finalSimulations.length, 0); assert.equal(c.submissions.length, 2);
+    assert.equal(await readFile(c.statePath, 'utf8'), before); assert.equal(await c.nft.total(), 910n);
+    noOpenSea(c);
+  });
 
 test('Rust CLI check-children API 422 preserves both prepared children and sends no mint transaction',
   { timeout: 60_000 }, async t => {

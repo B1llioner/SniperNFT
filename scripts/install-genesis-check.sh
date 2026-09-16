@@ -22,13 +22,13 @@ CONFIG={'wallet':'0x59Cd658EB1be492c52CcAA2575A90A236F77fAE2','quantity':2,'minQ
  'maxGasCostEth':'0.005','maxTotalGasCostEth':'0.019','reserveEth':'0.001'}
 ARTIFACT_FILES={'bin/vinos-genesis','build-manifest.json','genesis-check.config.json'}
 CHECK={'name':'genesis-check','configName':'genesis-check.config.json','config':CONFIG,'extraSources':set()}
-PUBLIC={'name':'genesis-mint','configName':'genesis-mint.config.json','config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250,watchRpc='wss://robinhood-rpc.publicnode.com'),
+PUBLIC={'name':'genesis-mint','configName':'genesis-mint.config.json','config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250,watchRpc='wss://robinhood-rpc.publicnode.com',readConcurrency=4),
  'extraSources':{'docs/GENESIS_MINT_SERVER.md'}}
-PUBLIC_UPGRADE_FROM={'artifactSha256':'bfd75aa0c100c642c0844a050466f778d360c10ccfa9e1f89dd4b2964c9c7287',
- 'launcherSha256':'126cb70462381e1f06612daa60309bebc92cc29136764de6084cf731f25327cb',
- 'sourceSha256':'78fab0311971ea4cc90f71d3c83457fd979917093588a8fbb3e9fd12af38c77b',
- 'binarySha256':'11e1c929de85181250008c6b302c504090284140848ef7ec0d628aa16939c09c',
- 'config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250)}
+PUBLIC_UPGRADE_FROM={'artifactSha256':'b4b8c0805a85df141cf1c9fd69bad4cf563043dc569a38d99a8fa397396a8b58',
+ 'launcherSha256':'3d463887eb6239180c69b4154312b7a4d0a2ca63b20397a4f025e6e03f8cec47',
+ 'sourceSha256':'7407688c3d58c7e5713a717900043e26d995e9d5a10e021689c1bb5657d823ec',
+ 'binarySha256':'cabecdd385b4f29cf3a8cdca1af8096db17d8efb5594938641d2eed1638b0e86',
+ 'config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250,watchRpc='wss://robinhood-rpc.publicnode.com')}
 def artifact_files(profile): return {'bin/vinos-genesis','build-manifest.json',profile['configName']}
 UPGRADE_FROM={'artifactSha256':'bb84ce6e87907c54c7a75f4911247f3c3a720aec853454e7b38633d48fe22484',
  'launcherSha256':'1a6c6fe0fa821b8a0506564447cf7d42cebdc9e81afb6db083df12424162cce0'}

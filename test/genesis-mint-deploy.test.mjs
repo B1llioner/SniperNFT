@@ -51,6 +51,7 @@ ns={};exec(source.rsplit('\ntry: main',1)[0],ns);profile=ns['PUBLIC'];approved='
 assert profile['config']['mode']=='public' and profile['config']['quantity']==10 and profile['config']['minQuantity']==1
 assert profile['config']['waitTimeoutSecs']==172800 and profile['config']['pollIntervalMs']==250
 assert profile['config']['watchRpc']=='wss://robinhood-rpc.publicnode.com'
+assert profile['config']['readConcurrency']==4
 assert profile['config']['sendRpcUrls']==['https://sequencer.mainnet.chain.robinhood.com']
 assert ns['CONFIG']['mode']=='signed' and ns['CONFIG']['quantity']==2
 binary=bytearray(64);binary[:6]=b'\x7fELF\x02\x01';binary[18:20]=b'\x3e\x00';binary=bytes(binary)
@@ -240,10 +241,13 @@ import contextlib,io,json,os,pathlib,pwd,socket,stat,subprocess,sys,tempfile,typ
 source=pathlib.Path(sys.argv[1]).read_text().split("<<'VINOS_INSTALLER'\n",1)[1].rsplit('\nVINOS_INSTALLER',1)[0]
 ns={};exec(source.rsplit('\ntry: main',1)[0],ns);profile=ns['PUBLIC']
 reviewed=ns['PUBLIC_UPGRADE_FROM'];old_sha=reviewed['artifactSha256'];new_sha='a'*64;new_source='b'*64
-assert old_sha=='bfd75aa0c100c642c0844a050466f778d360c10ccfa9e1f89dd4b2964c9c7287'
-assert reviewed['sourceSha256']=='78fab0311971ea4cc90f71d3c83457fd979917093588a8fbb3e9fd12af38c77b'
-assert reviewed['binarySha256']=='11e1c929de85181250008c6b302c504090284140848ef7ec0d628aa16939c09c'
-assert reviewed['config']['pollIntervalMs']==250 and 'watchRpc' not in reviewed['config']
+assert old_sha=='b4b8c0805a85df141cf1c9fd69bad4cf563043dc569a38d99a8fa397396a8b58'
+assert reviewed['sourceSha256']=='7407688c3d58c7e5713a717900043e26d995e9d5a10e021689c1bb5657d823ec'
+assert reviewed['binarySha256']=='cabecdd385b4f29cf3a8cdca1af8096db17d8efb5594938641d2eed1638b0e86'
+assert reviewed['launcherSha256']=='3d463887eb6239180c69b4154312b7a4d0a2ca63b20397a4f025e6e03f8cec47'
+assert reviewed['config']['pollIntervalMs']==250
+assert reviewed['config']['watchRpc']=='wss://robinhood-rpc.publicnode.com'
+assert 'readConcurrency' not in reviewed['config'] and profile['config']['readConcurrency']==4
 old_wrapper=ns['public_launcher']('/opt/vinos-genesis/'+old_sha).encode()
 assert ns['digest'](old_wrapper)==reviewed['launcherSha256']
 new_wrapper=ns['public_launcher']('/opt/vinos-genesis/'+new_sha).encode()
@@ -259,7 +263,8 @@ def installed(dest,artifact_sha,source_sha,config):
   (dest/name).write_text(json.dumps(value));(dest/name).chmod(0o644)
 
 cases=('idle','already-new','active-process','active-pane','dead-pane','unknown-tmux','multiple-panes','symlink-socket',
- 'old-source-changed','old-binary-changed','old-config-changed','launcher-changed','help-fails','late-process')
+ 'old-source-changed','old-binary-changed','old-config-changed','old-watch-changed','old-concurrency-changed',
+ 'new-concurrency-changed','launcher-changed','help-fails','late-process')
 for case in cases:
  with tempfile.TemporaryDirectory(prefix='public-upgrade-',dir='/tmp') as temporary:
   root=pathlib.Path(temporary);base=root/'opt/vinos-genesis';state=root/'var/lib/vinos-genesis'
@@ -276,6 +281,12 @@ for case in cases:
   if case=='old-binary-changed':(base/old_sha/'bin/vinos-genesis').write_bytes(b'changed binary')
   if case=='old-config-changed':
    p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['quantity']=99;p.write_text(json.dumps(value))
+  if case=='old-watch-changed':
+   p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value.pop('watchRpc');p.write_text(json.dumps(value))
+  if case=='old-concurrency-changed':
+   p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['readConcurrency']=4;p.write_text(json.dumps(value))
+  if case=='new-concurrency-changed':
+   p=base/new_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['readConcurrency']=1;p.write_text(json.dumps(value))
   if case=='launcher-changed':cmd.write_bytes(b'unknown launcher')
   if case=='active-process':
    (proc/'12').mkdir();(proc/'12/exe').symlink_to(base/old_sha/'bin/vinos-genesis')
@@ -339,6 +350,6 @@ for case in cases:
    if case in ('active-process','active-pane','unknown-tmux','multiple-panes','late-process'):
     report=json.loads(output.getvalue());assert report['staged'] and not report['installed'] and not report['launcherChanged']
   assert not any('capture-pane' in c or 'kill-session' in c or 'kill-server' in c for c in calls)
-print('14 pinned public upgrade cases: old state/checker/config preserved, active/late processes never stopped')
+print('17 pinned public upgrade cases: old state/checker/config preserved, active/late processes never stopped')
 `);
 });

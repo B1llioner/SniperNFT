@@ -7,6 +7,7 @@ use crate::{
     config::{CHAIN_ID, Config, Mode, Route, SEQUENCER},
     opensea::{ApiError, OpenSeaClient},
     payload::{self, ApprovedMint, MintKind, ValidatedPayload},
+    read_rpc::{ReadRequest, ReadRpc},
     state::{Action, Pending, Store},
     watch::{LogWatcher, WatchStatus, WatchUpdate},
 };
@@ -40,7 +41,7 @@ pub struct Options {
     pub local: bool,
 }
 pub struct Session {
-    pub reader: RpcClient,
+    pub reader: ReadRpc,
     senders: Vec<(usize, RpcClient)>,
     pub cfg: Config,
     pub local: bool,
@@ -289,8 +290,12 @@ impl Session {
         for attempt in 1..=3 {
             let result = async {
                 if reconnect {
-                    self.reader =
-                        RpcClient::connect(&self.cfg.read_rpc, self.cfg.timeout()).await?;
+                    self.reader = ReadRpc::connect(
+                        &self.cfg.read_rpc,
+                        self.cfg.timeout(),
+                        self.cfg.read_concurrency,
+                    )
+                    .await?;
                 }
                 chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await
             }
@@ -309,7 +314,7 @@ impl Session {
         anyhow::bail!("READ_RPC_SNAPSHOT_FAILED")
     }
     pub async fn open(cfg: Config, local: bool) -> Result<Self> {
-        let reader = RpcClient::connect(&cfg.read_rpc, cfg.timeout()).await?;
+        let reader = ReadRpc::connect(&cfg.read_rpc, cfg.timeout(), cfg.read_concurrency).await?;
         Ok(Self {
             reader,
             senders: Vec::new(),
@@ -1107,8 +1112,10 @@ impl Session {
         factory: Option<Address>,
         send: bool,
     ) -> Result<u8> {
+        let preparation_start = Instant::now();
         let snapshot =
             chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
+        let snapshot_ms = preparation_start.elapsed().as_secs_f64() * 1_000.;
         let count = usize::try_from(snapshot.remaining)?
             .min(usize::from(self.cfg.quantity))
             .min(batch.items.len());
@@ -1128,20 +1135,17 @@ impl Session {
             {
                 return Err(RefreshRequired("SEADROP_ROUTE_REMOVED".into()).into());
             }
-            if let Err(error) = chain::validate_live(
-                &mut self.reader,
-                &self.cfg,
-                &item.route,
-                item.child.address,
-                factory,
-                &item.payload,
-                &snapshot.head,
-            )
-            .await
-            {
-                return Err(RefreshRequired(format!("CHILD_VALIDATION_FAILED: {error}")).into());
-            }
         }
+        let validation_start = Instant::now();
+        let validations: Vec<_> = batch
+            .items
+            .iter()
+            .map(|item| (&item.route, item.child.address, factory, &item.payload))
+            .collect();
+        chain::validate_many(&mut self.reader, &self.cfg, &validations, &snapshot.head)
+            .await
+            .map_err(|error| RefreshRequired(format!("CHILD_VALIDATION_FAILED: {error}")))?;
+        let child_validation_ms = validation_start.elapsed().as_secs_f64() * 1_000.;
         let route = &batch.items[0].route;
         let (to, data, minimum_gas) = if let Some(factory) = factory {
             (
@@ -1174,6 +1178,7 @@ impl Session {
             &data,
             (minimum_gas > 0).then_some(minimum_gas),
         );
+        let quote_start = Instant::now();
         let q = chain::quote(
             &mut self.reader,
             &self.cfg,
@@ -1184,6 +1189,7 @@ impl Session {
             &mut self.read_block_floor,
         )
         .await?;
+        let quote_ms = quote_start.elapsed().as_secs_f64() * 1_000.;
         // Fee/nonce checks finish BEFORE the final exact-gas eth_call. The gas
         // floor is essential: this factory intentionally returns0 on low gas.
         let final_start = Instant::now();
@@ -1249,7 +1255,38 @@ impl Session {
         if checked.remaining < u64::from(self.cfg.min_quantity) {
             return Err(RefreshRequired("REMAINING_BELOW_MINIMUM_AFTER_SIMULATION".into()).into());
         }
-        let mut signer_rules = BTreeMap::new();
+        // Distinct signers are independent reads at the post-simulation block.
+        // Keep this stage AFTER the policy snapshot; the final simulation must
+        // never race against the policy/signature checks that guard signing.
+        let signer_keys: BTreeSet<_> = batch
+            .items
+            .iter()
+            .filter(|item| item.payload.kind == MintKind::Signed)
+            .map(|item| {
+                item.payload
+                    .signer
+                    .map(|signer| (item.route.sea_drop, signer))
+                    .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER"))
+            })
+            .collect::<Result<_>>()?;
+        let signer_requests = signer_keys
+            .iter()
+            .map(|(sea_drop, signer)| {
+                ReadRequest::new(
+                    "eth_call",
+                    json!([{"to":sea_drop,"data":eth::hex(&Sea::getSignedMintValidationParamsCall {
+                        nftContract: self.cfg.nft,
+                        signer: *signer,
+                    }.abi_encode())}, checked.head.tag]),
+                )
+            })
+            .collect();
+        let signer_values = self.reader.calls(signer_requests).await?;
+        let signer_rules: BTreeMap<_, _> = signer_keys
+            .into_iter()
+            .zip(signer_values)
+            .map(|(key, value)| eth::bytes(&value).map(|encoded| (key, encoded)))
+            .collect::<Result<_>>()?;
         for item in &batch.items {
             if item.payload.kind == MintKind::Public {
                 if !checked.drops.iter().any(|d| {
@@ -1265,20 +1302,6 @@ impl Session {
                     .signer
                     .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER"))?;
                 let key = (item.route.sea_drop, signer);
-                if let std::collections::btree_map::Entry::Vacant(entry) = signer_rules.entry(key) {
-                    let encoded = chain::raw_call(
-                        &mut self.reader,
-                        item.route.sea_drop,
-                        Sea::getSignedMintValidationParamsCall {
-                            nftContract: self.cfg.nft,
-                            signer,
-                        }
-                        .abi_encode(),
-                        &checked.head.tag,
-                    )
-                    .await?;
-                    entry.insert(encoded);
-                }
                 let encoded = signer_rules
                     .get(&key)
                     .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER_RULES"))?;
@@ -1312,7 +1335,7 @@ impl Session {
         }
         emit(
             store,
-            json!({"event":"mint_preflight","route":if factory.is_some(){"children"}else{"direct"},"predicted":predicted,"requested":self.cfg.quantity,"gasLimit":q.gas_limit,"maxGasCostWei":q.max_cost.to_string(),"simulationBlock":fresh.head.number,"policyCheckedBlock":checked.head.number,"finalPreflightMs":final_start.elapsed().as_secs_f64()*1_000.,"send":send}),
+            json!({"event":"mint_preflight","route":if factory.is_some(){"children"}else{"direct"},"predicted":predicted,"requested":self.cfg.quantity,"gasLimit":q.gas_limit,"maxGasCostWei":q.max_cost.to_string(),"simulationBlock":fresh.head.number,"policyCheckedBlock":checked.head.number,"finalPreflightMs":final_start.elapsed().as_secs_f64()*1_000.,"preparationMs":preparation_start.elapsed().as_secs_f64()*1_000.,"snapshotMs":snapshot_ms,"childValidationMs":child_validation_ms,"quoteMs":quote_ms,"readConcurrency":self.cfg.read_concurrency,"send":send}),
         ).await?;
         if !send {
             return Ok(0);

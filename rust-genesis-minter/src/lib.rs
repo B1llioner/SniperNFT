@@ -4,6 +4,7 @@ pub mod chain;
 pub mod config;
 pub mod opensea;
 pub mod payload;
+pub mod read_rpc;
 pub mod run;
 pub mod state;
 pub mod watch;

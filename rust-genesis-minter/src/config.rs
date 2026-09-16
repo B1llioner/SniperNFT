@@ -54,6 +54,9 @@ pub struct Config {
     pub collection_slug: String,
     #[serde(default = "reader")]
     pub read_rpc: String,
+    /// Persistent read-only connections; independent checks share a pinned block.
+    #[serde(default = "read_concurrency")]
+    pub read_concurrency: usize,
     /// Optional read-only log subscription. Notifications only trigger fresh RPC reads.
     #[serde(default)]
     pub watch_rpc: Option<String>,
@@ -104,6 +107,9 @@ fn one() -> u16 {
 }
 fn two() -> usize {
     2
+}
+fn read_concurrency() -> usize {
+    4
 }
 fn genesis() -> Address {
     GENESIS
@@ -295,6 +301,10 @@ impl Config {
                 && (1..=8).contains(&self.concurrency),
             "INVALID_RPC_CONCURRENCY"
         );
+        ensure!(
+            (1..=8).contains(&self.read_concurrency),
+            "INVALID_READ_RPC_CONCURRENCY"
+        );
         for endpoint in std::iter::once(&self.read_rpc)
             .chain(self.send_rpc_urls.iter())
             .chain(self.watch_rpc.iter())
@@ -385,6 +395,23 @@ mod tests {
         c.quantity = 1;
         c.recipient = Some(Address::repeat_byte(2));
         assert!(c.validate(false).is_err());
+    }
+    #[test]
+    fn read_concurrency_is_bounded_and_independent_of_senders() {
+        let mut c = config();
+        assert_eq!(c.read_concurrency, 4);
+        for width in [1, 4, 8] {
+            c.read_concurrency = width;
+            c.validate(false).unwrap();
+        }
+        for width in [0, 9, usize::MAX] {
+            c.read_concurrency = width;
+            assert_eq!(
+                c.validate(false).unwrap_err().to_string(),
+                "INVALID_READ_RPC_CONCURRENCY"
+            );
+        }
+        assert_eq!(c.concurrency, 2);
     }
     #[test]
     fn exact_decimal_fees() {

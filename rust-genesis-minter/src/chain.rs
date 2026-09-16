@@ -3,11 +3,12 @@ use crate::{
     artifact::Artifact,
     config::{CHAIN_ID, Config, Route, decimal_units},
     payload::{MintKind, MintParams, ValidatedPayload},
+    read_rpc::{ReadRequest, ReadRpc},
 };
 use alloy_primitives::{Address, B256, U256, keccak256};
 use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, ensure};
-use rust_mint_benchmark::{eth, rpc::RpcClient};
+use rust_mint_benchmark::eth;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::Duration};
 
@@ -50,12 +51,32 @@ pub struct Quote {
     pub nonce: u64,
 }
 
-pub async fn raw_call(
-    rpc: &mut RpcClient,
-    to: Address,
-    data: Vec<u8>,
-    tag: &str,
-) -> Result<Vec<u8>> {
+fn call_request(to: Address, data: Vec<u8>, tag: &str) -> ReadRequest {
+    ReadRequest::new("eth_call", json!([{"to":to,"data":eth::hex(&data)},tag]))
+}
+
+async fn read_group<const N: usize>(
+    rpc: &mut ReadRpc,
+    requests: [ReadRequest; N],
+) -> Result<[Value; N]> {
+    rpc.calls(requests.into_iter().collect())
+        .await?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("INVALID_READ_GROUP_RESULT_COUNT"))
+}
+
+fn next_result(results: &mut std::vec::IntoIter<Value>) -> Result<Value> {
+    results
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("INVALID_READ_GROUP_RESULT_COUNT"))
+}
+
+fn decode_stats(value: &Value) -> Result<(U256, U256, U256)> {
+    <(U256, U256, U256)>::abi_decode_validate(&eth::bytes(value)?)
+        .map_err(|_| anyhow::anyhow!("INVALID_NFT_STATS"))
+}
+
+pub async fn raw_call(rpc: &mut ReadRpc, to: Address, data: Vec<u8>, tag: &str) -> Result<Vec<u8>> {
     eth::bytes(
         &rpc.call("eth_call", json!([{"to":to,"data":eth::hex(&data)},tag]))
             .await?,
@@ -63,22 +84,24 @@ pub async fn raw_call(
 }
 /// A load-balanced reader may return `latest` older than a receipt it just
 /// served. Never use that older state to inspect or simulate a new contract.
-pub async fn head(rpc: &mut RpcClient, minimum_block: &mut u64) -> Result<Head> {
-    ensure!(
-        eth::quantity64(&rpc.call("eth_chainId", json!([])).await?)? == CHAIN_ID,
-        "WRONG_CHAIN"
-    );
+pub async fn head(rpc: &mut ReadRpc, minimum_block: &mut u64) -> Result<Head> {
+    let [chain, mut block] = read_group(
+        rpc,
+        [
+            ReadRequest::new("eth_chainId", json!([])),
+            ReadRequest::new("eth_getBlockByNumber", json!(["latest", false])),
+        ],
+    )
+    .await?;
+    ensure!(eth::quantity64(&chain)? == CHAIN_ID, "WRONG_CHAIN");
     for attempt in 1..=3 {
-        let b = rpc
-            .call("eth_getBlockByNumber", json!(["latest", false]))
-            .await?;
-        let number = eth::quantity64(&b["number"])?;
+        let number = eth::quantity64(&block["number"])?;
         if number >= *minimum_block {
             let result = Head {
                 number,
-                timestamp: eth::quantity64(&b["timestamp"])?,
-                gas_limit: eth::quantity64(&b["gasLimit"])?,
-                base_fee: eth::quantity(&b["baseFeePerGas"])?,
+                timestamp: eth::quantity64(&block["timestamp"])?,
+                gas_limit: eth::quantity64(&block["gasLimit"])?,
+                base_fee: eth::quantity(&block["baseFeePerGas"])?,
                 tag: format!("0x{number:x}"),
             };
             *minimum_block = number;
@@ -95,14 +118,17 @@ pub async fn head(rpc: &mut RpcClient, minimum_block: &mut u64) -> Result<Head> 
             *minimum_block
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
+        block = rpc
+            .call("eth_getBlockByNumber", json!(["latest", false]))
+            .await?;
     }
     anyhow::bail!("READ_RPC_HEAD_UNAVAILABLE")
 }
-pub async fn code(rpc: &mut RpcClient, address: Address, tag: &str) -> Result<Vec<u8>> {
+pub async fn code(rpc: &mut ReadRpc, address: Address, tag: &str) -> Result<Vec<u8>> {
     eth::bytes(&rpc.call("eth_getCode", json!([address, tag])).await?)
 }
 pub async fn stats(
-    rpc: &mut RpcClient,
+    rpc: &mut ReadRpc,
     nft: Address,
     minter: Address,
     tag: &str,
@@ -111,58 +137,71 @@ pub async fn stats(
     <(U256, U256, U256)>::abi_decode_validate(&b).map_err(|_| anyhow::anyhow!("INVALID_NFT_STATS"))
 }
 pub async fn snapshot(
-    rpc: &mut RpcClient,
+    rpc: &mut ReadRpc,
     cfg: &Config,
     minimum_block: &mut u64,
 ) -> Result<Snapshot> {
     let h = head(rpc, minimum_block).await?;
+    let [nft_code, wallet_code, allowed_result, mint_stats] = read_group(
+        rpc,
+        [
+            ReadRequest::new("eth_getCode", json!([cfg.nft, h.tag])),
+            ReadRequest::new("eth_getCode", json!([cfg.wallet, h.tag])),
+            call_request(cfg.nft, Nft::getAllowedSeaDropCall {}.abi_encode(), &h.tag),
+            call_request(
+                cfg.nft,
+                Nft::getMintStatsCall {
+                    minter: Address::ZERO,
+                }
+                .abi_encode(),
+                &h.tag,
+            ),
+        ],
+    )
+    .await?;
     ensure!(
-        keccak256(code(rpc, cfg.nft, &h.tag).await?) == cfg.nft_code_hash,
+        keccak256(eth::bytes(&nft_code)?) == cfg.nft_code_hash,
         "NFT_CODE_CHANGED"
     );
     ensure!(
-        code(rpc, cfg.wallet, &h.tag).await?.is_empty(),
+        eth::bytes(&wallet_code)?.is_empty(),
         "SIGNING_WALLET_MUST_BE_EOA"
     );
-    let b = raw_call(
-        rpc,
-        cfg.nft,
-        Nft::getAllowedSeaDropCall {}.abi_encode(),
-        &h.tag,
-    )
-    .await?;
+    let b = eth::bytes(&allowed_result)?;
     let mut allowed = Vec::<Address>::abi_decode_validate(&b)
         .map_err(|_| anyhow::anyhow!("INVALID_ALLOWED_SEADROP"))?;
     ensure!(allowed.len() <= 32, "OVERSIZED_ALLOWED_SEADROP");
     allowed.sort_unstable();
-    let (_, minted, maximum) = stats(rpc, cfg.nft, Address::ZERO, &h.tag).await?;
+    let (_, minted, maximum) = decode_stats(&mint_stats)?;
     ensure!(
         minted <= maximum && maximum <= U256::from(1024),
         "UNEXPECTED_NFT_SUPPLY"
     );
-    let mut drops = Vec::new();
-    for route in &cfg.routes {
-        if !allowed.contains(&route.sea_drop) {
-            continue;
-        }
-        ensure!(
-            keccak256(code(rpc, route.sea_drop, &h.tag).await?) == route.code_hash,
-            "SEADROP_CODE_CHANGED"
-        );
-        let data = raw_call(
-            rpc,
+    ensure!(cfg.routes.len() <= 4, "TOO_MANY_APPROVED_ROUTES");
+    let routes: Vec<_> = cfg
+        .routes
+        .iter()
+        .filter(|route| allowed.contains(&route.sea_drop))
+        .collect();
+    ensure!(
+        !routes.is_empty(),
+        "NO_APPROVED_SEADROP_REMAINS_ALLOWED_UPDATE_ROUTE_CONFIG"
+    );
+    let mut requests = Vec::with_capacity(routes.len() * 3);
+    for route in &routes {
+        requests.push(ReadRequest::new(
+            "eth_getCode",
+            json!([route.sea_drop, h.tag]),
+        ));
+        requests.push(call_request(
             route.sea_drop,
             Sea::getPublicDropCall {
                 nftContract: cfg.nft,
             }
             .abi_encode(),
             &h.tag,
-        )
-        .await?;
-        let d = Sea::PublicDrop::abi_decode_validate(&data)
-            .map_err(|_| anyhow::anyhow!("INVALID_PUBLIC_DROP"))?;
-        let b = raw_call(
-            rpc,
+        ));
+        requests.push(call_request(
             route.sea_drop,
             Sea::getFeeRecipientIsAllowedCall {
                 nftContract: cfg.nft,
@@ -170,9 +209,23 @@ pub async fn snapshot(
             }
             .abi_encode(),
             &h.tag,
-        )
-        .await?;
-        let fee_allowed = bool::abi_decode_validate(&b)
+        ));
+    }
+    let values = rpc.calls(requests).await?;
+    ensure!(
+        values.len() == routes.len() * 3,
+        "INVALID_READ_GROUP_RESULT_COUNT"
+    );
+    let mut results = values.into_iter();
+    let mut drops = Vec::with_capacity(routes.len());
+    for route in routes {
+        ensure!(
+            keccak256(eth::bytes(&next_result(&mut results)?)?) == route.code_hash,
+            "SEADROP_CODE_CHANGED"
+        );
+        let d = Sea::PublicDrop::abi_decode_validate(&eth::bytes(&next_result(&mut results)?)?)
+            .map_err(|_| anyhow::anyhow!("INVALID_PUBLIC_DROP"))?;
+        let fee_allowed = bool::abi_decode_validate(&eth::bytes(&next_result(&mut results)?)?)
             .map_err(|_| anyhow::anyhow!("INVALID_FEE_RECIPIENT_CHECK"))?;
         drops.push(Drop {
             route: route.clone(),
@@ -187,10 +240,6 @@ pub async fn snapshot(
             restrict_fee_recipients: d.restrictFeeRecipients,
         });
     }
-    ensure!(
-        !drops.is_empty(),
-        "NO_APPROVED_SEADROP_REMAINS_ALLOWED_UPDATE_ROUTE_CONFIG"
-    );
     Ok(Snapshot {
         head: h,
         remaining: (maximum - minted).to::<u64>(),
@@ -223,7 +272,7 @@ impl Drop {
 }
 
 pub async fn verify_factory(
-    rpc: &mut RpcClient,
+    rpc: &mut ReadRpc,
     cfg: &Config,
     factory: Address,
     tag: &str,
@@ -245,7 +294,7 @@ pub async fn verify_factory(
     Ok(())
 }
 pub async fn children(
-    rpc: &mut RpcClient,
+    rpc: &mut ReadRpc,
     cfg: &Config,
     factory: Address,
     tag: &str,
@@ -275,13 +324,17 @@ pub async fn children(
         .await?;
         let address = Address::abi_decode_validate(&b)
             .map_err(|_| anyhow::anyhow!("INVALID_CHILD_ADDRESS"))?;
-        ensure!(
-            code(rpc, address, tag).await? == expected,
-            "CHILD_RUNTIME_MISMATCH"
-        );
-        let b = raw_call(rpc, address, Child::spentCall {}.abi_encode(), tag).await?;
-        let spent =
-            bool::abi_decode_validate(&b).map_err(|_| anyhow::anyhow!("INVALID_CHILD_SPENT"))?;
+        let [runtime, spent] = read_group(
+            rpc,
+            [
+                ReadRequest::new("eth_getCode", json!([address, tag])),
+                call_request(address, Child::spentCall {}.abi_encode(), tag),
+            ],
+        )
+        .await?;
+        ensure!(eth::bytes(&runtime)? == expected, "CHILD_RUNTIME_MISMATCH");
+        let spent = bool::abi_decode_validate(&eth::bytes(&spent)?)
+            .map_err(|_| anyhow::anyhow!("INVALID_CHILD_SPENT"))?;
         if !spent {
             result.push(ChildAddress { index, address });
         }
@@ -293,7 +346,7 @@ pub async fn children(
 }
 
 pub async fn validate_live(
-    rpc: &mut RpcClient,
+    rpc: &mut ReadRpc,
     cfg: &Config,
     route: &Route,
     minter: Address,
@@ -301,54 +354,89 @@ pub async fn validate_live(
     p: &ValidatedPayload,
     h: &Head,
 ) -> Result<()> {
-    let (wallet, minted, maximum) = stats(rpc, cfg.nft, minter, &h.tag).await?;
-    ensure!(minted < maximum, "SOLD_OUT");
-    if p.kind == MintKind::Signed {
-        let params = p
-            .params
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNED_PARAMS"))?;
-        let time = U256::from(h.timestamp);
-        ensure!(
-            params.startTime <= time
-                && params.endTime >= time + U256::from(cfg.min_signature_remaining_secs),
-            "SIGNED_WINDOW_NOT_READY_OR_EXPIRING"
-        );
-        ensure!(
-            wallet < params.maxTotalMintableByWallet && minted < params.maxTokenSupplyForStage,
-            "SIGNED_MINT_LIMIT_REACHED"
-        );
-        let signer = p.signer.ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER"))?;
-        let b = raw_call(
-            rpc,
-            route.sea_drop,
-            Sea::getSignedMintValidationParamsCall {
-                nftContract: cfg.nft,
-                signer,
-            }
-            .abi_encode(),
-            &h.tag,
-        )
-        .await?;
-        validate_signer_bounds(params, &b)?;
+    validate_many(rpc, cfg, &[(route, minter, factory, p)], h).await
+}
+
+/// Every independent read is pinned to one block. Simulations have no state
+/// effects, so they may run beside permission checks; all must pass before the
+/// caller can prepare a transaction for signing.
+pub async fn validate_many(
+    rpc: &mut ReadRpc,
+    cfg: &Config,
+    items: &[(&Route, Address, Option<Address>, &ValidatedPayload)],
+    h: &Head,
+) -> Result<()> {
+    ensure!(items.len() <= 100, "TOO_MANY_LIVE_VALIDATION_ITEMS");
+    if items.is_empty() {
+        return Ok(());
     }
-    // Exact per-minter eth_call additionally verifies replay protection and current fee/payer restrictions.
-    let simulation = if let Some(factory) = factory {
-        tx(
-            factory,
-            Some(minter),
-            &Child::mintCall {
-                seaDrop: route.sea_drop,
-                feeRecipient: route.fee_recipient,
-                payload: p.data.clone().into(),
-            }
-            .abi_encode(),
-            Some(cfg.gas_per_child),
-        )
-    } else {
-        tx(minter, Some(route.sea_drop), &p.data, None)
-    };
-    rpc.call("eth_call", json!([simulation, h.tag])).await?;
+    let mut requests = Vec::with_capacity(items.len() * 3);
+    for &(route, minter, factory, p) in items {
+        requests.push(call_request(
+            cfg.nft,
+            Nft::getMintStatsCall { minter }.abi_encode(),
+            &h.tag,
+        ));
+        if p.kind == MintKind::Signed {
+            let signer = p.signer.ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER"))?;
+            requests.push(call_request(
+                route.sea_drop,
+                Sea::getSignedMintValidationParamsCall {
+                    nftContract: cfg.nft,
+                    signer,
+                }
+                .abi_encode(),
+                &h.tag,
+            ));
+        }
+        // Exact per-minter execution also checks replay, fee and payer rules.
+        let simulation = if let Some(factory) = factory {
+            tx(
+                factory,
+                Some(minter),
+                &Child::mintCall {
+                    seaDrop: route.sea_drop,
+                    feeRecipient: route.fee_recipient,
+                    payload: p.data.clone().into(),
+                }
+                .abi_encode(),
+                Some(cfg.gas_per_child),
+            )
+        } else {
+            tx(minter, Some(route.sea_drop), &p.data, None)
+        };
+        requests.push(ReadRequest::new("eth_call", json!([simulation, h.tag])));
+    }
+    let expected_count = requests.len();
+    let values = rpc.calls(requests).await?;
+    ensure!(
+        values.len() == expected_count,
+        "INVALID_READ_GROUP_RESULT_COUNT"
+    );
+    let mut results = values.into_iter();
+    for &(_, _, _, p) in items {
+        let (wallet, minted, maximum) = decode_stats(&next_result(&mut results)?)?;
+        ensure!(minted < maximum, "SOLD_OUT");
+        if p.kind == MintKind::Signed {
+            let params = p
+                .params
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNED_PARAMS"))?;
+            let time = U256::from(h.timestamp);
+            ensure!(
+                params.startTime <= time
+                    && params.endTime >= time + U256::from(cfg.min_signature_remaining_secs),
+                "SIGNED_WINDOW_NOT_READY_OR_EXPIRING"
+            );
+            ensure!(
+                wallet < params.maxTotalMintableByWallet && minted < params.maxTokenSupplyForStage,
+                "SIGNED_MINT_LIMIT_REACHED"
+            );
+            validate_signer_bounds(params, &eth::bytes(&next_result(&mut results)?)?)?;
+        }
+        // Validate the JSON-RPC return type as well as the successful status.
+        eth::bytes(&next_result(&mut results)?)?;
+    }
     Ok(())
 }
 
@@ -389,7 +477,7 @@ pub fn batch_gas(count: usize, gas_per_child: u64) -> Result<u64> {
         .ok_or_else(|| anyhow::anyhow!("GAS_OVERFLOW"))
 }
 pub async fn quote(
-    rpc: &mut RpcClient,
+    rpc: &mut ReadRpc,
     cfg: &Config,
     transaction: &Value,
     min_gas: u64,
@@ -398,10 +486,33 @@ pub async fn quote(
     minimum_block: &mut u64,
 ) -> Result<Quote> {
     let h = head(rpc, minimum_block).await?;
-    let estimate = eth::quantity64(
-        &rpc.call("eth_estimateGas", json!([transaction, h.tag]))
-            .await?,
-    )?;
+    let mut requests = vec![ReadRequest::new(
+        "eth_estimateGas",
+        json!([transaction, h.tag]),
+    )];
+    if !local {
+        requests.push(call_request(
+            Address::with_last_byte(0x6c),
+            GasInfo::getMaxTxGasLimitCall {}.abi_encode(),
+            &h.tag,
+        ));
+    }
+    // Balance and confirmed nonce share the estimation block. Pending nonce is
+    // deliberately separate and must still equal that confirmed nonce.
+    requests.extend([
+        ReadRequest::new("eth_gasPrice", json!([])),
+        ReadRequest::new("eth_getBalance", json!([cfg.wallet, h.tag])),
+        ReadRequest::new("eth_getTransactionCount", json!([cfg.wallet, h.tag])),
+        ReadRequest::new("eth_getTransactionCount", json!([cfg.wallet, "pending"])),
+    ]);
+    let expected_count = requests.len();
+    let values = rpc.calls(requests).await?;
+    ensure!(
+        values.len() == expected_count,
+        "INVALID_READ_GROUP_RESULT_COUNT"
+    );
+    let mut results = values.into_iter();
+    let estimate = eth::quantity64(&next_result(&mut results)?)?;
     let gas_limit = estimate
         .checked_mul(120)
         .and_then(|v| v.checked_add(99))
@@ -411,13 +522,7 @@ pub async fn quote(
     let max_tx = if local {
         h.gas_limit
     } else {
-        let b = raw_call(
-            rpc,
-            Address::with_last_byte(0x6c),
-            GasInfo::getMaxTxGasLimitCall {}.abi_encode(),
-            &h.tag,
-        )
-        .await?;
+        let b = eth::bytes(&next_result(&mut results)?)?;
         u64::abi_decode_validate(&b).map_err(|_| anyhow::anyhow!("NITRO_GAS_LIMIT_UNAVAILABLE"))?
     };
     ensure!(
@@ -431,7 +536,7 @@ pub async fn quote(
         .checked_add(priority)
         .ok_or_else(|| anyhow::anyhow!("FEE_OVERFLOW"))?;
     ensure!(needed <= cap, "BASE_FEE_EXCEEDS_CONFIGURED_GAS_PRICE");
-    let suggested = eth::quantity(&rpc.call("eth_gasPrice", json!([])).await?)?;
+    let suggested = eth::quantity(&next_result(&mut results)?)?;
     let max_fee = h
         .base_fee
         .max(suggested)
@@ -451,12 +556,7 @@ pub async fn quote(
                 .is_some_and(|n| n <= total_cap),
         "GAS_BUDGET_EXCEEDED"
     );
-    // Bind balance and confirmed nonce to the same fresh block used for gas
-    // estimation. A separately cached `latest`/`pending` must not undo that.
-    let balance = eth::quantity(
-        &rpc.call("eth_getBalance", json!([cfg.wallet, h.tag]))
-            .await?,
-    )?;
+    let balance = eth::quantity(&next_result(&mut results)?)?;
     ensure!(
         balance
             >= max_cost
@@ -464,14 +564,8 @@ pub async fn quote(
                 .ok_or_else(|| anyhow::anyhow!("COST_OVERFLOW"))?,
         "BALANCE_CANNOT_COVER_GAS_AND_RESERVE"
     );
-    let confirmed = eth::quantity64(
-        &rpc.call("eth_getTransactionCount", json!([cfg.wallet, h.tag]))
-            .await?,
-    )?;
-    let pending = eth::quantity64(
-        &rpc.call("eth_getTransactionCount", json!([cfg.wallet, "pending"]))
-            .await?,
-    )?;
+    let confirmed = eth::quantity64(&next_result(&mut results)?)?;
+    let pending = eth::quantity64(&next_result(&mut results)?)?;
     ensure!(
         pending >= confirmed,
         "READ_RPC_PENDING_NONCE_BEHIND_CONFIRMED_BLOCK"
