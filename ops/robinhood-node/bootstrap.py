@@ -347,7 +347,7 @@ def download_part(directory, part):
                           "attempt": attempt, "resumeBytes": info.st_size, "totalBytes": part["size"]}), flush=True)
         try:
             result = subprocess.run([
-                "curl", "--silent", "--show-error", "--fail", "--proto", "=https",
+                "curl", "--http1.1", "--silent", "--show-error", "--fail", "--proto", "=https",
                 "--proto-redir", "=https", "--max-redirs", "0", "--noproxy", "*",
                 "--user-agent", "Mozilla/5.0", "--connect-timeout", "15",
                 "--max-time", "21600", "--speed-limit", "1048576", "--speed-time", "120",

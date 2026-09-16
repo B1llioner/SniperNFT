@@ -154,3 +154,28 @@ the actual spec must name the intended instance and its observed blank disks.
 Local operational evidence and instance-specific files are retained under
 `.state/robinhood-node-20260916/`. The separate parallel-preflight change and
 controlled benchmark are documented in `GENESIS_PARALLEL_PREFLIGHT_REVIEW.md`.
+
+### Download recovery: 2026-09-16 23:56 UTC
+
+The download stopped at 21:59:17 UTC after three failed attempts. Curl reported
+error 92: the snapshot server reset an HTTP/2 stream with `INTERNAL_ERROR`.
+The partial first part was preserved at 170,310,893,568 bytes; Nitro did not
+start because its snapshot dependency failed.
+
+A bounded HTTP/1.1 range probe returned HTTP 206 and the exact requested 1 MiB
+at the saved offset. The bootstrap now explicitly uses `curl --http1.1` while
+retaining resume, checksum verification, and the three-attempt limit. All 20
+bootstrap tests passed, including interrupted-download resume and preservation
+after three failures. The installed helper was atomically patched after checking
+its old hash and the saved partial file; provisioning and disk formatting were
+not rerun. New helper SHA-256:
+`7d6ce288425db709cb65490e875dbd717d11d052cac83c3b705bfdf66038d5d3`.
+
+Recovery SSM command `40f3bda7-5530-40cb-a101-acf9f052ea11` reset the failed
+units and queued the node start with its snapshot dependency. The download log
+confirmed `resumeBytes=170310893568`, with the same partial inode. Between
+23:56:09.804 and 23:56:29.906 UTC, the file grew to 172,317,605,888 bytes:
+21.90% of the complete snapshot, approximately 99.8 MB/s over this short sample.
+Free space was approximately 4.784 TB. This confirms resumed transfer, not
+sustained reliability or completed node sync. Evidence is saved in
+`.state/robinhood-node-20260916/http1-resume-result.json`.

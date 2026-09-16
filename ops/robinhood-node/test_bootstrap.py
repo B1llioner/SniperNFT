@@ -195,6 +195,7 @@ class SnapshotStaging(unittest.TestCase):
             path.write_bytes(b"first")
 
             def curl(argv, **kwargs):
+                self.assertIn("--http1.1", argv)
                 self.assertEqual(argv[argv.index("--continue-at") + 1], "-")
                 self.assertEqual(argv[argv.index("--output") + 1], str(path))
                 self.assertEqual(argv[argv.index("--proto") + 1], "=https")
@@ -215,7 +216,7 @@ class SnapshotStaging(unittest.TestCase):
             part = self.parts()[0]
             path = directory / part["name"]
             path.write_bytes(b"first")
-            with patch.object(B.subprocess, "run", return_value=SimpleNamespace(returncode=28)) as request, \
+            with patch.object(B.subprocess, "run", return_value=SimpleNamespace(returncode=92)) as request, \
                     patch.object(B.time, "sleep") as delay:
                 with self.assertRaisesRegex(B.Refused, "AFTER_THREE_ATTEMPTS"):
                     B.download_part(directory, part)
