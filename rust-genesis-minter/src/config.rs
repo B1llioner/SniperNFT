@@ -24,7 +24,7 @@ pub enum Mode {
     Signed,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Route {
     pub sea_drop: Address,
@@ -54,6 +54,9 @@ pub struct Config {
     pub collection_slug: String,
     #[serde(default = "reader")]
     pub read_rpc: String,
+    /// Optional read-only log subscription. Notifications only trigger fresh RPC reads.
+    #[serde(default)]
+    pub watch_rpc: Option<String>,
     #[serde(default = "senders")]
     pub send_rpc_urls: Vec<String>,
     #[serde(default = "two")]
@@ -292,7 +295,10 @@ impl Config {
                 && (1..=8).contains(&self.concurrency),
             "INVALID_RPC_CONCURRENCY"
         );
-        for endpoint in std::iter::once(&self.read_rpc).chain(self.send_rpc_urls.iter()) {
+        for endpoint in std::iter::once(&self.read_rpc)
+            .chain(self.send_rpc_urls.iter())
+            .chain(self.watch_rpc.iter())
+        {
             let url = Url::parse(endpoint).map_err(|_| anyhow::anyhow!("INVALID_RPC_URL"))?;
             ensure!(
                 url.username().is_empty()
@@ -312,6 +318,14 @@ impl Config {
                     matches!(url.scheme(), "https" | "wss")
                 },
                 "INVALID_RPC_TRANSPORT"
+            );
+        }
+        if let Some(endpoint) = &self.watch_rpc {
+            crate::watch::validate_endpoint(endpoint)?;
+            let url = Url::parse(endpoint).map_err(|_| anyhow::anyhow!("INVALID_WATCH_RPC_URL"))?;
+            ensure!(
+                url.scheme() == "wss" || (local && url.scheme() == "ws"),
+                "WATCH_RPC_REQUIRES_WEBSOCKET"
             );
         }
         ensure!(
@@ -404,5 +418,29 @@ mod tests {
         assert!(loopback_url("http://127.0.0.1:8545"));
         assert!(!loopback_url("http://127.0.0.1.evil.example"));
         assert!(!loopback_url("http://user@127.0.0.1"));
+    }
+    #[test]
+    fn watch_transport_is_validated_before_preparation() {
+        let mut c = config();
+        c.watch_rpc = Some("wss://robinhood-rpc.publicnode.com".into());
+        c.validate(false).unwrap();
+        for endpoint in [
+            "https://robinhood-rpc.publicnode.com",
+            "ws://127.0.0.1:8500",
+            "wss://feed.mainnet.chain.robinhood.com",
+            "wss://secret@example.invalid",
+            "wss://example.invalid/#fragment",
+            " wss://example.invalid",
+            "wss://@example.invalid",
+        ] {
+            c.watch_rpc = Some(endpoint.into());
+            assert!(c.validate(false).is_err(), "accepted {endpoint}");
+        }
+        c.read_rpc = "http://127.0.0.1:8500".into();
+        c.send_rpc_urls = vec![c.read_rpc.clone()];
+        c.watch_rpc = Some("ws://127.0.0.1:8501".into());
+        c.validate(true).unwrap();
+        c.watch_rpc = Some("wss://example.invalid".into());
+        assert!(c.validate(true).is_err());
     }
 }

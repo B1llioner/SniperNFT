@@ -22,8 +22,13 @@ CONFIG={'wallet':'0x59Cd658EB1be492c52CcAA2575A90A236F77fAE2','quantity':2,'minQ
  'maxGasCostEth':'0.005','maxTotalGasCostEth':'0.019','reserveEth':'0.001'}
 ARTIFACT_FILES={'bin/vinos-genesis','build-manifest.json','genesis-check.config.json'}
 CHECK={'name':'genesis-check','configName':'genesis-check.config.json','config':CONFIG,'extraSources':set()}
-PUBLIC={'name':'genesis-mint','configName':'genesis-mint.config.json','config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250),
+PUBLIC={'name':'genesis-mint','configName':'genesis-mint.config.json','config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250,watchRpc='wss://robinhood-rpc.publicnode.com'),
  'extraSources':{'docs/GENESIS_MINT_SERVER.md'}}
+PUBLIC_UPGRADE_FROM={'artifactSha256':'bfd75aa0c100c642c0844a050466f778d360c10ccfa9e1f89dd4b2964c9c7287',
+ 'launcherSha256':'126cb70462381e1f06612daa60309bebc92cc29136764de6084cf731f25327cb',
+ 'sourceSha256':'78fab0311971ea4cc90f71d3c83457fd979917093588a8fbb3e9fd12af38c77b',
+ 'binarySha256':'11e1c929de85181250008c6b302c504090284140848ef7ec0d628aa16939c09c',
+ 'config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250)}
 def artifact_files(profile): return {'bin/vinos-genesis','build-manifest.json',profile['configName']}
 UPGRADE_FROM={'artifactSha256':'bb84ce6e87907c54c7a75f4911247f3c3a720aec853454e7b38633d48fe22484',
  'launcherSha256':'1a6c6fe0fa821b8a0506564447cf7d42cebdc9e81afb6db083df12424162cce0'}
@@ -112,6 +117,32 @@ if not(tmux.exists() or tmux.is_symlink()):
  subprocess.run(['/usr/bin/dnf','install','--assumeyes','tmux'],check=True,timeout=120,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C'})
 checked_bytes(tmux,8*1024*1024)
 subprocess.run([str(tmux),'-V'],check=True,timeout=10,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={'PATH':'/usr/bin:/bin','LANG':'C'})'''
+def public_activation_guard():
+ return '''# Observe only executable paths and pane liveness; never inspect arguments, environment or pane contents.
+def public_activation_allowed():
+ for process in pathlib.Path('/proc').iterdir():
+  if not process.name.isdigit(): continue
+  try: executable=os.readlink(process/'exe')
+  except (FileNotFoundError,ProcessLookupError): continue
+  if executable.startswith(str(base)+'/') and executable.removesuffix(' (deleted)').endswith('/bin/vinos-genesis'):
+   return False,'running_process'
+ socket=state/'public-mint.tmux'
+ if socket.exists() or socket.is_symlink():
+  i=socket.lstat();need(stat.S_ISSOCK(i.st_mode) and i.st_uid==user.pw_uid,'Unsafe public tmux socket')
+  result=subprocess.run(['/usr/sbin/runuser','-u','ssm-user','--','env','-i','PATH=/usr/bin:/bin',
+   '/usr/bin/tmux','-S',str(socket),'-f','/dev/null','list-panes','-s','-t','genesis-mint','-F','#{pane_dead}'],
+   stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=10)
+  if result.returncode!=0: return False,'tmux_status_unknown'
+  if result.stdout.strip()!='1': return False,'live_or_multiple_panes'
+ return True,None
+def guard_public_publication():
+ if upgrade_from is None or before[2]==new_launcher_sha: return
+ allowed,reason=public_activation_allowed()
+ if not allowed:
+  print(json.dumps({'staged':True,'installed':False,'activationBlocked':reason,'directory':str(dest),
+   'artifactSha256':dest.name,'launcherChanged':False,'privateKeyRead':False,'transactionsSent':0}),flush=True)
+  raise RuntimeError('Public activation blocked; running processes and launcher preserved')
+guard_public_publication()'''
 def public_launcher(destination):
  binary=shlex.quote(destination+'/bin/vinos-genesis')
  config=shlex.quote(destination+'/genesis-mint.config.json')
@@ -187,7 +218,7 @@ def checked_bytes(path,maximum):
 def launcher_snapshot(path):
  if not(path.exists() or path.is_symlink()): return None
  body,i=checked_bytes(path,16384);return (i.st_dev,i.st_ino,hashlib.sha256(body).hexdigest())
-def checked_installation(path,artifact_sha,source_sha=None,expected_binary_sha=None):
+def checked_installation(path,artifact_sha,source_sha=None,expected_binary_sha=None,expected_config=None):
  directory(path,0o755);directory(path/'bin',0o755)
  marker=json.loads(checked_bytes(path/'installation.json',16384)[0])
  build=json.loads(checked_bytes(path/'build-manifest.json',65536)[0])
@@ -198,7 +229,7 @@ def checked_installation(path,artifact_sha,source_sha=None,expected_binary_sha=N
  actual=hashlib.sha256(binary).hexdigest()
  need(marker['binarySha256']==actual and build['binary']=={{'path':'bin/vinos-genesis','sha256':actual,'bytes':len(binary)}},'Installed binary changed')
  need(expected_binary_sha is None or actual==expected_binary_sha,'Installed binary identity mismatch')
- need(json.loads(checked_bytes(path/{profile['configName']!r},65536)[0])=={profile['config']!r},'Installed config changed')
+ need(json.loads(checked_bytes(path/{profile['configName']!r},65536)[0])==({profile['config']!r} if expected_config is None else expected_config),'Installed config changed')
 need(os.geteuid()==0,'Installer requires SSM root')
 os.umask(0o022) # SSM may inherit 077: program directories must remain traversable.
 user=pwd.getpwnam('ssm-user')
@@ -216,7 +247,7 @@ before=launcher_snapshot(cmd);new_launcher_sha=hashlib.sha256(wrapper).hexdigest
 if upgrade_from is not None:
  need(before is not None,'Reviewed old launcher is required for upgrade')
  need(before[2] in (upgrade_from['launcherSha256'],new_launcher_sha),'Installed launcher is not the reviewed upgrade source')
- checked_installation(base/upgrade_from['artifactSha256'],upgrade_from['artifactSha256'])
+ checked_installation(base/upgrade_from['artifactSha256'],upgrade_from['artifactSha256'],upgrade_from.get('sourceSha256'),upgrade_from.get('binarySha256'),upgrade_from.get('config'))
 else:
  need(before is None or before[2]==new_launcher_sha,'Different existing Genesis launcher; review upgrade explicitly')
 if dest.exists() or dest.is_symlink():
@@ -247,12 +278,14 @@ checked_installation(dest,{sha!r},{approved!r},{binary_sha!r})
 binary=dest/'bin/vinos-genesis'
 subprocess.run([str(binary),'--help'],check=True,timeout=10,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={{'PATH':'/usr/bin:/bin','LANG':'C'}})
 {public_prerequisites() if profile is PUBLIC else ''}
+{public_activation_guard() if profile is PUBLIC else ''}
 need(launcher_snapshot(cmd)==before,'Launcher changed during installation; no replacement made')
 if before is None or before[2]!=new_launcher_sha:
  fd,name=tempfile.mkstemp(prefix={('.vinos-'+profile['name']+'-')!r},dir=cmd.parent)
  try:
   with os.fdopen(fd,'wb') as out: out.write(wrapper);out.flush();os.fsync(out.fileno());os.fchmod(out.fileno(),0o755)
   need(launcher_snapshot(cmd)==before,'Launcher changed before publication; no replacement made')
+  {'guard_public_publication()' if profile is PUBLIC else ''}
   if before is None: os.link(name,cmd) # Initial publication never overwrites another launcher.
   else:
    need(upgrade_from is not None and before[2]==upgrade_from['launcherSha256'],'Upgrade was not explicitly reviewed')
@@ -267,7 +300,7 @@ print(json.dumps({{'installed':True,'directory':str(dest),'launcher':str(cmd),'a
 os.close(lock_fd)
 '''
 def install(artifact,approved,upgrade_from=None,profile=CHECK):
- need(upgrade_from is None or (profile is CHECK and upgrade_from==UPGRADE_FROM),'Unreviewed upgrade source')
+ need(upgrade_from is None or upgrade_from==(PUBLIC_UPGRADE_FROM if profile is PUBLIC else UPGRADE_FROM),'Unreviewed upgrade source')
  data=regular(pathlib.Path(artifact).absolute(),24*1024*1024);manifest=inspect_artifact(data,approved,profile);sha=digest(data)
  need(aws('sts','get-caller-identity')['Account']==ACCOUNT,'Unexpected AWS account')
  response=aws('ec2','describe-instances','--instance-ids',INSTANCE)
@@ -288,8 +321,8 @@ def install(artifact,approved,upgrade_from=None,profile=CHECK):
             '--timeout-seconds','120','--parameters',json.dumps({'commands':['python3 -c '+shlex.quote(program)],'executionTimeout':['360' if profile is PUBLIC else '180']}))
  command=result['Command']['CommandId'];save(pathlib.Path(str(intent)+'.command.json'),{'commandId':command,'instanceId':INSTANCE})
  print(json.dumps({'intent':str(intent),'commandId':command,'directory':destination,'launcher':'vinos-'+profile['name'],'transactionsSent':0}))
-def upgrade(artifact,approved):
- install(artifact,approved,UPGRADE_FROM)
+def upgrade(artifact,approved,profile=CHECK):
+ install(artifact,approved,PUBLIC_UPGRADE_FROM if profile is PUBLIC else UPGRADE_FROM,profile)
 def status(command):
  need(re.fullmatch('[0-9a-f-]{36}',command),'Invalid command ID')
  v=aws('ssm','get-command-invocation','--command-id',command,'--instance-id',INSTANCE)
@@ -346,15 +379,15 @@ def main(args):
  script='install-'+profile['name']+'.sh'
  if args in ([],['--help']):
   print('bash '+script+' build SOURCE.tgz SHA256\nbash '+script+' install ARTIFACT.tgz SOURCE_SHA256\nbash '+script+' status COMMAND_ID\nbash '+script+' verify ARTIFACT_SHA256\nInstall and verify never prompt for a key or start paid preparation.')
-  if profile is CHECK: print('bash '+script+' upgrade ARTIFACT.tgz SOURCE_SHA256\nUpgrade only accepts the pinned reviewed old checker installation.')
+  print('bash '+script+' upgrade ARTIFACT.tgz SOURCE_SHA256\nUpgrade only accepts the pinned reviewed old installation; public activation refuses live processes. Inspect the saved intent after a blocked attempt; no automatic retry.')
   return
- actions=('build','install','status','verify')+(('upgrade',) if profile is CHECK else ())
+ actions=('build','install','status','verify','upgrade')
  need(args[0] in actions and len(args)==(2 if args[0] in ('status','verify') else 3),'Invalid command arguments')
  if args[0] in ('build','install','upgrade'): need(re.fullmatch('[0-9a-f]{64}',args[2]),'Expected SHA256')
  if args[0]=='build': build(*args[1:],profile=profile)
  elif args[0]=='install': install(*args[1:],profile=profile)
  elif args[0]=='verify': verify(*args[1:],profile=profile)
- elif args[0]=='upgrade': upgrade(*args[1:])
+ elif args[0]=='upgrade': upgrade(*args[1:],profile=profile)
  else: status(*args[1:])
 
 try: main(sys.argv[1:])

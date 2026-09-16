@@ -31,6 +31,7 @@ sha2 = "0.10"
 thiserror = "2"
 time = { version = "=0.3.55", features = ["parsing"] }
 tokio = { version = "1.44", features = ["rt", "macros", "net", "time", "signal", "io-util", "fs", "sync"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 url = "2"
 zeroize = "1"
 

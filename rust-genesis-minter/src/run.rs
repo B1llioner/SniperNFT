@@ -1,13 +1,14 @@
 //! One-owner orchestration. Preparation is replaceable until a signed intent is
 //! durably recorded; after that, only receipt reconciliation can advance state.
 use crate::{
-    abi::{Factory, Nft},
+    abi::{Factory, Nft, Sea},
     artifact::Artifact,
     chain::{self, ChildAddress, Quote},
     config::{CHAIN_ID, Config, Mode, Route, SEQUENCER},
     opensea::{ApiError, OpenSeaClient},
     payload::{self, ApprovedMint, MintKind, ValidatedPayload},
     state::{Action, Pending, Store},
+    watch::{LogWatcher, WatchStatus, WatchUpdate},
 };
 use alloy_primitives::{Address, B256, U256};
 use alloy_sol_types::{SolCall, SolEvent, SolValue};
@@ -20,7 +21,7 @@ use rust_mint_benchmark::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 
@@ -63,6 +64,117 @@ struct Batch {
     created: Instant,
 }
 
+#[cfg(test)]
+mod freshness_tests {
+    use super::*;
+
+    fn setup() -> (Config, chain::Snapshot) {
+        let cfg: Config = serde_json::from_value(
+            json!({"wallet":Address::repeat_byte(1),"mode":"public","pollIntervalMs":250}),
+        )
+        .unwrap();
+        let snapshot = chain::Snapshot {
+            head: chain::Head {
+                number: 1,
+                timestamp: 100,
+                gas_limit: 30_000_000,
+                base_fee: 1,
+                tag: "0x1".into(),
+            },
+            remaining: 114,
+            max_supply: 1024,
+            allowed_sea_drop: vec![cfg.routes[0].sea_drop],
+            drops: vec![chain::Drop {
+                route: cfg.routes[0].clone(),
+                start: 1000,
+                end: 2000,
+                free: true,
+                mint_price: 0,
+                wallet_limit: 1,
+                fee_allowed: true,
+                fee_recipient_allowed: true,
+                fee_bps: 1000,
+                restrict_fee_recipients: true,
+            }],
+        };
+        (cfg, snapshot)
+    }
+
+    #[test]
+    fn races_in_supply_or_blocks_do_not_invalidate_policy() {
+        let (_, old) = setup();
+        let (_, mut current) = setup();
+        current.head.number += 10;
+        current.head.timestamp += 1;
+        current.remaining -= 100;
+        assert!(old.same_policy(&current));
+        current.max_supply -= 1;
+        assert!(!old.same_policy(&current));
+        current.max_supply = old.max_supply;
+        current.allowed_sea_drop.push(Address::repeat_byte(5));
+        assert!(!old.same_policy(&current));
+    }
+
+    #[test]
+    fn raw_fee_permission_is_tracked_even_when_public_drop_is_unrestricted() {
+        let (_, mut old) = setup();
+        let (_, mut current) = setup();
+        old.drops[0].restrict_fee_recipients = false;
+        current.drops[0].restrict_fee_recipients = false;
+        current.drops[0].fee_recipient_allowed = false;
+        assert!(current.drops[0].fee_allowed);
+        assert!(!old.same_policy(&current));
+    }
+
+    #[test]
+    fn distant_polling_requires_healthy_watcher() {
+        let (cfg, mut snapshot) = setup();
+        assert_eq!(
+            wait_poll_delay(&cfg, &snapshot, true),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            wait_poll_delay(&cfg, &snapshot, false),
+            Duration::from_secs(1)
+        );
+        snapshot.head.timestamp = 970;
+        assert_eq!(
+            wait_poll_delay(&cfg, &snapshot, true),
+            Duration::from_millis(250)
+        );
+        assert_eq!(
+            wait_poll_delay(&cfg, &snapshot, false),
+            Duration::from_millis(250)
+        );
+        snapshot.drops.clear();
+        assert_eq!(
+            wait_poll_delay(&cfg, &snapshot, false),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn only_transient_read_failures_are_retried() {
+        for error in [
+            RpcError::Timeout,
+            RpcError::Network,
+            RpcError::Closed,
+            RpcError::HttpStatus(503),
+        ] {
+            assert!(retryable_read(&error.into()));
+        }
+        for error in [
+            RpcError::Protocol,
+            RpcError::ResponseTooLarge,
+            RpcError::HttpStatus(429),
+            RpcError::Remote { code: -32000 },
+        ] {
+            assert!(!retryable_read(&error.into()));
+        }
+        assert!(!retryable_read(&anyhow::anyhow!("NFT_CODE_CHANGED")));
+    }
+}
+
 async fn emit(store: &Store, value: Value) -> Result<()> {
     store.event(&value).await?;
     println!("{value}");
@@ -86,16 +198,37 @@ fn public_windows(snapshot: &chain::Snapshot) -> Vec<Value> {
             json!({
                 "seaDrop":d.route.sea_drop,"start":d.start,"end":d.end,
                 "active":d.active(snapshot.head.timestamp),"free":d.free,
-                "walletLimit":d.wallet_limit,"feeAllowed":d.fee_allowed
+                "mintPriceWei":d.mint_price.to_string(),
+                "walletLimit":d.wallet_limit,"feeAllowed":d.fee_allowed,
+                "feeRecipientAllowed":d.fee_recipient_allowed,
+                "feeBps":d.fee_bps,"restrictFeeRecipients":d.restrict_fee_recipients
             })
         })
         .collect()
 }
 
-// Re-read the actual on-chain schedule every 10 s while distant, and switch to
-// the configured interval 30 s before it. Local wall-clock time cannot release
-// a mint; moved windows are picked up on the next snapshot.
-fn wait_poll_delay(cfg: &Config, snapshot: &chain::Snapshot) -> Duration {
+fn drop_state(snapshot: &chain::Snapshot) -> Value {
+    json!({"remaining":snapshot.remaining,"maxSupply":snapshot.max_supply,
+        "allowedSeaDrop":snapshot.allowed_sea_drop,"publicWindows":public_windows(snapshot)})
+}
+
+async fn emit_drop_change(
+    store: &Store,
+    previous: &chain::Snapshot,
+    current: &chain::Snapshot,
+) -> Result<()> {
+    emit(
+        store,
+        json!({"event":"drop_state_changed","block":current.head.number,
+        "previous":drop_state(previous),"current":drop_state(current),
+        "preparationDiscarded":!previous.same_policy(current)}),
+    )
+    .await
+}
+
+// Healthy event subscriptions wake distant waits immediately; polling still
+// covers missing events. Without a watcher, never sleep more than one second.
+fn wait_poll_delay(cfg: &Config, snapshot: &chain::Snapshot, watching: bool) -> Duration {
     let near = Duration::from_millis(cfg.poll_interval_ms);
     if cfg.mode != Mode::Public {
         return near;
@@ -106,14 +239,75 @@ fn wait_poll_delay(cfg: &Config, snapshot: &chain::Snapshot) -> Duration {
         .filter(|d| d.available_now_or_later(snapshot.head.timestamp))
         .map(|d| d.start.saturating_sub(snapshot.head.timestamp))
         .min();
-    match until {
+    let delay = match until {
         Some(seconds) if seconds <= 30 => near,
         Some(seconds) => Duration::from_secs((seconds - 30).min(10)).max(near),
         None => Duration::from_secs(10),
+    };
+    if watching {
+        delay
+    } else {
+        delay.min(Duration::from_secs(1))
     }
 }
 
+async fn wait_for_change(
+    updates: &mut Option<tokio::sync::watch::Receiver<WatchUpdate>>,
+    delay: Duration,
+) {
+    if let Some(receiver) = updates {
+        tokio::select! {
+            _ = tokio::time::sleep(delay) => {},
+            changed = receiver.changed() => {
+                // The degraded terminal update is consumed before channel close.
+                // A closed channel must not create a busy loop.
+                if changed.is_err() { *updates = None; }
+            }
+        }
+    } else {
+        tokio::time::sleep(delay).await;
+    }
+}
+
+fn retryable_read(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<RpcError>(),
+        Some(
+            RpcError::Timeout
+                | RpcError::Network
+                | RpcError::Closed
+                | RpcError::HttpStatus(500..=599)
+        )
+    )
+}
+
 impl Session {
+    /// Only read-only waiting snapshots may reconnect automatically. Contract
+    /// identity, schema, chain and authorization failures remain terminal.
+    async fn waiting_snapshot(&mut self, store: &Store) -> Result<chain::Snapshot> {
+        let mut reconnect = false;
+        for attempt in 1..=3 {
+            let result = async {
+                if reconnect {
+                    self.reader =
+                        RpcClient::connect(&self.cfg.read_rpc, self.cfg.timeout()).await?;
+                }
+                chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await
+            }
+            .await;
+            match result {
+                Ok(snapshot) => return Ok(snapshot),
+                Err(error) if retryable_read(&error) => {
+                    emit(store, json!({"event":"read_rpc_unavailable","consecutiveFailures":attempt,"reason":error.to_string()})).await?;
+                    ensure!(attempt < 3, "THREE_CONSECUTIVE_READ_FAILURES_STOPPED");
+                    reconnect = true;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        anyhow::bail!("READ_RPC_SNAPSHOT_FAILED")
+    }
     pub async fn open(cfg: Config, local: bool) -> Result<Self> {
         let reader = RpcClient::connect(&cfg.read_rpc, cfg.timeout()).await?;
         Ok(Self {
@@ -735,18 +929,70 @@ impl Session {
             store.state.factory
         };
         let started = Instant::now();
+        let _watcher = self
+            .cfg
+            .watch_rpc
+            .as_ref()
+            .map(|url| {
+                LogWatcher::start(
+                    url,
+                    self.cfg.nft,
+                    &self
+                        .cfg
+                        .routes
+                        .iter()
+                        .map(|r| r.sea_drop)
+                        .collect::<Vec<_>>(),
+                    self.cfg.timeout(),
+                )
+            })
+            .transpose()?;
+        let mut updates = _watcher.as_ref().map(LogWatcher::updates);
+        let mut last_watch: Option<WatchUpdate> = None;
+        let mut previous: Option<chain::Snapshot> = None;
+        let mut snapshot_started: Option<Instant> = None;
         let mut last_heartbeat = Instant::now();
         let mut last_progress: Option<Instant> = None;
         let mut batch: Option<Batch> = None;
         let mut api_failures = 0u8;
         let mut simulation_failures = 0u8;
         loop {
+            // Coalesce event bursts into at most four snapshot starts per
+            // second. No unbounded work queue or extra API requests per log.
+            if let Some(last) = snapshot_started {
+                tokio::time::sleep_until(tokio::time::Instant::from_std(
+                    last + Duration::from_millis(250),
+                ))
+                .await;
+            }
+            snapshot_started = Some(Instant::now());
             ensure!(
                 started.elapsed() < Duration::from_secs(self.cfg.wait_timeout_secs),
                 "MINT_WAIT_TIMEOUT"
             );
-            let snapshot =
-                chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
+            let watch_state = updates.as_mut().map(|r| *r.borrow_and_update());
+            if watch_state != last_watch {
+                if let Some(status) = watch_state {
+                    // Only report status/failure transitions, not every mint log.
+                    if last_watch.is_none_or(|last| {
+                        last.status != status.status || last.failures != status.failures
+                    }) {
+                        emit(store, json!({"event":"drop_watch","revision":status.revision,
+                            "status":status.status,"failures":status.failures,"error":status.error})).await?;
+                    }
+                }
+                last_watch = watch_state;
+            }
+            let snapshot = self.waiting_snapshot(store).await?;
+            if let Some(old) = &previous {
+                let changed_policy = !old.same_policy(&snapshot);
+                if changed_policy || old.remaining != snapshot.remaining {
+                    emit_drop_change(store, old, &snapshot).await?;
+                }
+                if changed_policy {
+                    batch = None;
+                }
+            }
             ensure!(
                 snapshot.remaining >= u64::from(self.cfg.min_quantity),
                 "SOLD_OUT_OR_BELOW_MINIMUM"
@@ -804,7 +1050,8 @@ impl Session {
                     })
             });
             if !released || !time_ready {
-                let poll_delay = wait_poll_delay(&self.cfg, &snapshot);
+                let watching = watch_state.is_some_and(|s| s.status == WatchStatus::Active);
+                let poll_delay = wait_poll_delay(&self.cfg, &snapshot, watching);
                 if last_progress.is_none_or(|last| last.elapsed() >= Duration::from_secs(10)) {
                     emit(
                         store,
@@ -812,12 +1059,14 @@ impl Session {
                     ).await?;
                     last_progress = Some(Instant::now());
                 }
-                tokio::time::sleep(poll_delay).await;
+                previous = Some(snapshot);
+                wait_for_change(&mut updates, poll_delay).await;
                 continue;
             }
             let ready = batch
                 .take()
                 .ok_or_else(|| anyhow::anyhow!("MISSING_PREPARED_BATCH"))?;
+            previous = Some(snapshot);
             let outcome = self
                 .finalize_batch(store, signer, ready, factory, send)
                 .await;
@@ -838,7 +1087,14 @@ impl Session {
                         simulation_failures < 3,
                         "THREE_CONSECUTIVE_PREFLIGHT_FAILURES_STOPPED"
                     );
-                    tokio::time::sleep(Duration::from_millis(self.cfg.payload_refresh_ms)).await;
+                    // A known stale preparation is rebuilt promptly. API quota
+                    // accounting remains inside OpenSeaClient; events never bypass it.
+                    wait_for_change(
+                        &mut updates,
+                        Duration::from_millis(self.cfg.poll_interval_ms)
+                            .min(Duration::from_secs(1)),
+                    )
+                    .await;
                 }
             }
         }
@@ -980,6 +1236,71 @@ impl Session {
             predicted <= u64::from(self.cfg.quantity),
             "UNEXPECTED_SIMULATED_MINT_COUNT"
         );
+        // A simulation is tied to its block. Read policy again before signing:
+        // advancing blocks and competing mints are normal, but changed routes,
+        // stage settings or revoked signers make that preparation obsolete.
+        // This bounds the observation gap; it cannot freeze future inclusion.
+        let checked =
+            chain::snapshot(&mut self.reader, &self.cfg, &mut self.read_block_floor).await?;
+        if !fresh.same_policy(&checked) {
+            emit_drop_change(store, &fresh, &checked).await?;
+            return Err(RefreshRequired("DROP_POLICY_CHANGED_AFTER_SIMULATION".into()).into());
+        }
+        if checked.remaining < u64::from(self.cfg.min_quantity) {
+            return Err(RefreshRequired("REMAINING_BELOW_MINIMUM_AFTER_SIMULATION".into()).into());
+        }
+        let mut signer_rules = BTreeMap::new();
+        for item in &batch.items {
+            if item.payload.kind == MintKind::Public {
+                if !checked.drops.iter().any(|d| {
+                    d.route.sea_drop == item.route.sea_drop && d.active(checked.head.timestamp)
+                }) {
+                    return Err(
+                        RefreshRequired("PUBLIC_WINDOW_CHANGED_AFTER_SIMULATION".into()).into(),
+                    );
+                }
+            } else {
+                let signer = item
+                    .payload
+                    .signer
+                    .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER"))?;
+                let key = (item.route.sea_drop, signer);
+                if let std::collections::btree_map::Entry::Vacant(entry) = signer_rules.entry(key) {
+                    let encoded = chain::raw_call(
+                        &mut self.reader,
+                        item.route.sea_drop,
+                        Sea::getSignedMintValidationParamsCall {
+                            nftContract: self.cfg.nft,
+                            signer,
+                        }
+                        .abi_encode(),
+                        &checked.head.tag,
+                    )
+                    .await?;
+                    entry.insert(encoded);
+                }
+                let encoded = signer_rules
+                    .get(&key)
+                    .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNER_RULES"))?;
+                let params = item
+                    .payload
+                    .params
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("MISSING_SIGNED_PARAMS"))?;
+                if params.startTime > U256::from(checked.head.timestamp)
+                    || params.endTime
+                        < U256::from(checked.head.timestamp)
+                            + U256::from(self.cfg.min_signature_remaining_secs)
+                {
+                    return Err(
+                        RefreshRequired("SIGNED_WINDOW_CHANGED_AFTER_SIMULATION".into()).into(),
+                    );
+                }
+                chain::validate_signer_bounds(params, encoded).map_err(|error| {
+                    RefreshRequired(format!("SIGNER_CHANGED_AFTER_SIMULATION: {error}"))
+                })?;
+            }
+        }
         let valid_until = batch.items.iter().fold(
             final_start + Duration::from_millis(self.cfg.max_preflight_age_ms),
             |deadline, p| {
@@ -991,7 +1312,7 @@ impl Session {
         }
         emit(
             store,
-            json!({"event":"mint_preflight","route":if factory.is_some(){"children"}else{"direct"},"predicted":predicted,"requested":self.cfg.quantity,"gasLimit":q.gas_limit,"maxGasCostWei":q.max_cost.to_string(),"finalPreflightMs":final_start.elapsed().as_secs_f64()*1_000.,"send":send}),
+            json!({"event":"mint_preflight","route":if factory.is_some(){"children"}else{"direct"},"predicted":predicted,"requested":self.cfg.quantity,"gasLimit":q.gas_limit,"maxGasCostWei":q.max_cost.to_string(),"simulationBlock":fresh.head.number,"policyCheckedBlock":checked.head.number,"finalPreflightMs":final_start.elapsed().as_secs_f64()*1_000.,"send":send}),
         ).await?;
         if !send {
             return Ok(0);

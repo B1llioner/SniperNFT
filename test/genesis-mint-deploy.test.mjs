@@ -50,6 +50,7 @@ source=pathlib.Path(sys.argv[1]).read_text().split("<<'VINOS_INSTALLER'\n",1)[1]
 ns={};exec(source.rsplit('\ntry: main',1)[0],ns);profile=ns['PUBLIC'];approved='a'*64
 assert profile['config']['mode']=='public' and profile['config']['quantity']==10 and profile['config']['minQuantity']==1
 assert profile['config']['waitTimeoutSecs']==172800 and profile['config']['pollIntervalMs']==250
+assert profile['config']['watchRpc']=='wss://robinhood-rpc.publicnode.com'
 assert profile['config']['sendRpcUrls']==['https://sequencer.mainnet.chain.robinhood.com']
 assert ns['CONFIG']['mode']=='signed' and ns['CONFIG']['quantity']==2
 binary=bytearray(64);binary[:6]=b'\x7fELF\x02\x01';binary[18:20]=b'\x3e\x00';binary=bytes(binary)
@@ -87,7 +88,11 @@ with tempfile.TemporaryDirectory() as directory:
  assert "'preflight'" in programs[1] and '--send' not in programs[1] and 'check-children' not in programs[1]
  assert 'genesis-mint.config.json' in programs[1] and "'/usr/bin/tmux','-V'" in programs[1]
  for p in root.glob('*.json'):assert 'SYNTHETIC_SECRET' not in p.read_text()
- try:ns['main'](['--public','upgrade',str(artifact),approved]);raise AssertionError('Unreviewed public upgrade accepted')
+ routed=[]
+ with mock.patch.dict(ns,upgrade=lambda *args,**kwargs:routed.append((args,kwargs))):
+  ns['main'](['--public','upgrade',str(artifact),approved])
+ assert len(routed)==1 and routed[0][1]['profile'] is profile
+ try:ns['install'](artifact,approved,{'artifactSha256':'d'*64},profile);raise AssertionError('Unreviewed public upgrade accepted')
  except ValueError:pass
 print('Public-only installation and read-only verification checked offline')
 `);
@@ -226,5 +231,114 @@ if action=='new-session' and scenario not in ('existing','dead','live'):sys.exit
  code,out,calls=invoke(['attach'],'existing');assert code==0 and any(c.get('tmux',[''])[0]=='attach-session' for c in calls) and not any('binary' in c for c in calls)
  code,out,calls=invoke([],terminal=False);assert code==1 and 'interactive terminal' in out
 print('Generated Bash launcher executed in PTY with synthetic binary/tmux only')
+`);
+});
+
+test('Pinned public upgrade preserves old files and stages without activation when mint processes or panes are live', () => {
+  python(String.raw`
+import contextlib,io,json,os,pathlib,pwd,socket,stat,subprocess,sys,tempfile,types,unittest.mock as mock
+source=pathlib.Path(sys.argv[1]).read_text().split("<<'VINOS_INSTALLER'\n",1)[1].rsplit('\nVINOS_INSTALLER',1)[0]
+ns={};exec(source.rsplit('\ntry: main',1)[0],ns);profile=ns['PUBLIC']
+reviewed=ns['PUBLIC_UPGRADE_FROM'];old_sha=reviewed['artifactSha256'];new_sha='a'*64;new_source='b'*64
+assert old_sha=='bfd75aa0c100c642c0844a050466f778d360c10ccfa9e1f89dd4b2964c9c7287'
+assert reviewed['sourceSha256']=='78fab0311971ea4cc90f71d3c83457fd979917093588a8fbb3e9fd12af38c77b'
+assert reviewed['binarySha256']=='11e1c929de85181250008c6b302c504090284140848ef7ec0d628aa16939c09c'
+assert reviewed['config']['pollIntervalMs']==250 and 'watchRpc' not in reviewed['config']
+old_wrapper=ns['public_launcher']('/opt/vinos-genesis/'+old_sha).encode()
+assert ns['digest'](old_wrapper)==reviewed['launcherSha256']
+new_wrapper=ns['public_launcher']('/opt/vinos-genesis/'+new_sha).encode()
+binary=b'synthetic immutable binary';binary_sha=ns['digest'](binary)
+upgrade=dict(reviewed,binarySha256=binary_sha)
+
+def installed(dest,artifact_sha,source_sha,config):
+ (dest/'bin').mkdir(parents=True,mode=0o755);dest.chmod(0o755)
+ (dest/'bin/vinos-genesis').write_bytes(binary);(dest/'bin/vinos-genesis').chmod(0o755)
+ for name,value in {'installation.json':{'artifactSha256':artifact_sha,'sourceSha256':source_sha,'binarySha256':binary_sha},
+  'build-manifest.json':{'kind':'vinos-genesis-build-v1','sourceSha256':source_sha,'binary':{'path':'bin/vinos-genesis','sha256':binary_sha,'bytes':len(binary)}},
+  'genesis-mint.config.json':config}.items():
+  (dest/name).write_text(json.dumps(value));(dest/name).chmod(0o644)
+
+cases=('idle','already-new','active-process','active-pane','dead-pane','unknown-tmux','multiple-panes','symlink-socket',
+ 'old-source-changed','old-binary-changed','old-config-changed','launcher-changed','help-fails','late-process')
+for case in cases:
+ with tempfile.TemporaryDirectory(prefix='public-upgrade-',dir='/tmp') as temporary:
+  root=pathlib.Path(temporary);base=root/'opt/vinos-genesis';state=root/'var/lib/vinos-genesis'
+  cmd=root/'usr/local/bin/vinos-genesis-mint';cmd.parent.mkdir(parents=True)
+  checker=cmd.with_name('vinos-genesis-check');checker.write_bytes(b'immutable old checker');checker.chmod(0o755)
+  state.mkdir(parents=True);state.chmod(0o700);(state/'state.json').write_text('{"factory":"existing","pending":null}')
+  proc=root/'proc';proc.mkdir()
+  installed(base/old_sha,old_sha,reviewed['sourceSha256'],reviewed['config'])
+  installed(base/new_sha,new_sha,new_source,profile['config'])
+  cmd.write_bytes(new_wrapper if case=='already-new' else old_wrapper);cmd.chmod(0o755)
+  tmux=root/'usr/bin/tmux';tmux.parent.mkdir(parents=True);tmux.write_bytes(b'synthetic tmux');tmux.chmod(0o755)
+  if case=='old-source-changed':
+   p=base/old_sha/'installation.json';value=json.loads(p.read_text());value['sourceSha256']='c'*64;p.write_text(json.dumps(value))
+  if case=='old-binary-changed':(base/old_sha/'bin/vinos-genesis').write_bytes(b'changed binary')
+  if case=='old-config-changed':
+   p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['quantity']=99;p.write_text(json.dumps(value))
+  if case=='launcher-changed':cmd.write_bytes(b'unknown launcher')
+  if case=='active-process':
+   (proc/'12').mkdir();(proc/'12/exe').symlink_to(base/old_sha/'bin/vinos-genesis')
+  socket_fixture=case in ('active-pane','dead-pane','unknown-tmux','multiple-panes')
+  if case in ('active-pane','dead-pane','unknown-tmux','multiple-panes'):
+   (state/'public-mint.tmux').write_bytes(b'synthetic socket metadata; no real socket opened')
+  if case=='symlink-socket':(state/'public-mint.tmux').symlink_to(state/'state.json')
+  # /tmp may inherit a different group on macOS; model the production root/ssm-user ownership explicitly.
+  for directory in root.rglob('*'):
+   if directory.is_dir():os.chown(directory,os.getuid(),os.getgid());directory.chmod(0o700 if directory==state else 0o755)
+  initial=cmd.read_bytes()
+  protected={p:(p.read_bytes(),p.stat().st_mtime_ns) for directory in (base/old_sha,state) for p in directory.rglob('*') if p.is_file()}
+  protected[checker]=(checker.read_bytes(),checker.stat().st_mtime_ns)
+  remote=ns['remote_program']('https://example.invalid/artifact',new_sha,new_source,binary_sha,new_wrapper.decode(),upgrade,profile)
+  for absolute in ('/opt/vinos-genesis','/usr/local/bin/vinos-genesis-mint','/var/lib/vinos-genesis','/usr/bin/tmux','/proc',
+   '/opt','/usr','/usr/local','/usr/local/bin','/var','/var/lib'):
+   remote=remote.replace(repr(absolute),repr(str(root/absolute.lstrip('/'))))
+  remote=remote.replace('def directory(path,mode,uid=0,gid=0):',f'def directory(path,mode,uid={os.getuid()},gid={os.getgid()}):')
+  remote=remote.replace('i.st_uid==0',f'i.st_uid=={os.getuid()}').replace('lock_info.st_uid==0',f'lock_info.st_uid=={os.getuid()}')
+  remote=remote.replace('if uid==0:',f'if uid=={os.getuid()} and mode!=0o700:')
+  scope={};calls=[];scans=[];output=io.StringIO();error=None;actual_iterdir=pathlib.Path.iterdir;actual_lstat=pathlib.Path.lstat
+  def lstat(path):
+   info=actual_lstat(path)
+   if socket_fixture and path==state/'public-mint.tmux':
+    values=list(info);values[0]=stat.S_IFSOCK|0o600;return os.stat_result(values)
+   return info
+  def iterdir(path):
+   if path==proc:
+    scans.append(True)
+    if case=='late-process' and len(scans)==2:
+     (proc/'34').mkdir();(proc/'34/exe').symlink_to(base/old_sha/'bin/vinos-genesis')
+   return actual_iterdir(path)
+  def run(command,**kwargs):
+   calls.append(command);assert '--send' not in command and all('kill' not in str(x) for x in command)
+   if command==[str(base/new_sha/'bin/vinos-genesis'),'--help']:
+    if case=='help-fails':raise subprocess.CalledProcessError(1,command)
+    return subprocess.CompletedProcess(command,0)
+   if command==[str(tmux),'-V']:return subprocess.CompletedProcess(command,0)
+   assert command[:4]==['/usr/sbin/runuser','-u','ssm-user','--'] and command[-2:]==['-F','#{pane_dead}'],command
+   assert kwargs['stdin']==subprocess.DEVNULL and kwargs['timeout']==10
+   return subprocess.CompletedProcess(command,1 if case=='unknown-tmux' else 0,'1\n' if case=='dead-pane' else '1\n1\n' if case=='multiple-panes' else '0\n','synthetic status')
+  old_umask=os.umask(0o077)
+  try:
+   with mock.patch.object(os,'geteuid',lambda:0),mock.patch.object(pwd,'getpwnam',lambda _:types.SimpleNamespace(pw_uid=os.getuid(),pw_gid=os.getgid())),mock.patch.object(subprocess,'run',run),mock.patch.object(pathlib.Path,'iterdir',iterdir),mock.patch.object(pathlib.Path,'lstat',lstat),contextlib.redirect_stdout(output):
+    try:exec(compile(remote,'public-upgrade','exec'),scope)
+    except Exception as caught:error=caught
+  finally:
+   os.umask(old_umask)
+   if 'lock_fd' in scope:
+    try:os.close(scope['lock_fd'])
+    except OSError:pass
+  for p,(data,mtime) in protected.items():assert p.read_bytes()==data and p.stat().st_mtime_ns==mtime,(case,p)
+  assert stat.S_IMODE(state.stat().st_mode)==0o700
+  if case in ('idle','already-new','dead-pane'):
+   assert error is None,(case,error)
+   assert cmd.read_bytes()==new_wrapper and stat.S_IMODE(cmd.stat().st_mode)==0o755
+   report=json.loads(output.getvalue());assert report['installed'] and report['upgradedFrom']==old_sha
+  else:
+   assert error is not None,case
+   assert cmd.read_bytes()==initial,case
+   if case in ('active-process','active-pane','unknown-tmux','multiple-panes','late-process'):
+    report=json.loads(output.getvalue());assert report['staged'] and not report['installed'] and not report['launcherChanged']
+  assert not any('capture-pane' in c or 'kill-session' in c or 'kill-server' in c for c in calls)
+print('14 pinned public upgrade cases: old state/checker/config preserved, active/late processes never stopped')
 `);
 });

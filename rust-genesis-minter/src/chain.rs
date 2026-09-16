@@ -2,7 +2,7 @@ use crate::{
     abi::{Child, Factory, GasInfo, Nft, Sea},
     artifact::Artifact,
     config::{CHAIN_ID, Config, Route, decimal_units},
-    payload::{MintKind, ValidatedPayload},
+    payload::{MintKind, MintParams, ValidatedPayload},
 };
 use alloy_primitives::{Address, B256, U256, keccak256};
 use alloy_sol_types::{SolCall, SolValue};
@@ -18,17 +18,24 @@ pub struct Head {
     pub base_fee: u128,
     pub tag: String,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Drop {
     pub route: Route,
     pub start: u64,
     pub end: u64,
     pub free: bool,
+    pub mint_price: u128,
     pub wallet_limit: u16,
     pub fee_allowed: bool,
+    pub fee_recipient_allowed: bool,
+    pub fee_bps: u16,
+    pub restrict_fee_recipients: bool,
 }
 pub struct Snapshot {
     pub head: Head,
     pub remaining: u64,
+    pub max_supply: u64,
+    pub allowed_sea_drop: Vec<Address>,
     pub drops: Vec<Drop>,
 }
 pub struct ChildAddress {
@@ -124,9 +131,10 @@ pub async fn snapshot(
         &h.tag,
     )
     .await?;
-    let allowed = Vec::<Address>::abi_decode_validate(&b)
+    let mut allowed = Vec::<Address>::abi_decode_validate(&b)
         .map_err(|_| anyhow::anyhow!("INVALID_ALLOWED_SEADROP"))?;
     ensure!(allowed.len() <= 32, "OVERSIZED_ALLOWED_SEADROP");
+    allowed.sort_unstable();
     let (_, minted, maximum) = stats(rpc, cfg.nft, Address::ZERO, &h.tag).await?;
     ensure!(
         minted <= maximum && maximum <= U256::from(1024),
@@ -171,8 +179,12 @@ pub async fn snapshot(
             start: d.startTime.to::<u64>(),
             end: d.endTime.to::<u64>(),
             free: d.mintPrice.is_zero(),
+            mint_price: d.mintPrice.to::<u128>(),
             wallet_limit: d.maxTotalMintableByWallet,
             fee_allowed: !d.restrictFeeRecipients || fee_allowed,
+            fee_recipient_allowed: fee_allowed,
+            fee_bps: d.feeBps,
+            restrict_fee_recipients: d.restrictFeeRecipients,
         });
     }
     ensure!(
@@ -182,8 +194,19 @@ pub async fn snapshot(
     Ok(Snapshot {
         head: h,
         remaining: (maximum - minted).to::<u64>(),
+        max_supply: maximum.to::<u64>(),
+        allowed_sea_drop: allowed,
         drops,
     })
+}
+impl Snapshot {
+    /// Ordinary competing mints do not invalidate a safe partial batch. Changes
+    /// to policy do; a new block number alone is not a policy change.
+    pub fn same_policy(&self, other: &Self) -> bool {
+        self.max_supply == other.max_supply
+            && self.allowed_sea_drop == other.allowed_sea_drop
+            && self.drops == other.drops
+    }
 }
 impl Drop {
     pub fn available_now_or_later(&self, time: u64) -> bool {
@@ -307,19 +330,7 @@ pub async fn validate_live(
             &h.tag,
         )
         .await?;
-        let v = Sea::Validation::abi_decode_validate(&b)
-            .map_err(|_| anyhow::anyhow!("INVALID_SIGNER_VALIDATION"))?;
-        ensure!(
-            v.maxMaxTotalMintableByWallet.to::<u64>() > 0
-                && params.mintPrice >= U256::from(v.minMintPrice)
-                && params.maxTotalMintableByWallet <= U256::from(v.maxMaxTotalMintableByWallet)
-                && params.startTime >= U256::from(v.minStartTime)
-                && params.endTime <= U256::from(v.maxEndTime)
-                && params.maxTokenSupplyForStage <= U256::from(v.maxMaxTokenSupplyForStage)
-                && params.feeBps >= U256::from(v.minFeeBps)
-                && params.feeBps <= U256::from(v.maxFeeBps),
-            "SIGNER_REVOKED_OR_PARAMS_CHANGED"
-        );
+        validate_signer_bounds(params, &b)?;
     }
     // Exact per-minter eth_call additionally verifies replay protection and current fee/payer restrictions.
     let simulation = if let Some(factory) = factory {
@@ -338,6 +349,23 @@ pub async fn validate_live(
         tx(minter, Some(route.sea_drop), &p.data, None)
     };
     rpc.call("eth_call", json!([simulation, h.tag])).await?;
+    Ok(())
+}
+
+pub fn validate_signer_bounds(params: &MintParams, encoded: &[u8]) -> Result<()> {
+    let v = Sea::Validation::abi_decode_validate(encoded)
+        .map_err(|_| anyhow::anyhow!("INVALID_SIGNER_VALIDATION"))?;
+    ensure!(
+        v.maxMaxTotalMintableByWallet.to::<u64>() > 0
+            && params.mintPrice >= U256::from(v.minMintPrice)
+            && params.maxTotalMintableByWallet <= U256::from(v.maxMaxTotalMintableByWallet)
+            && params.startTime >= U256::from(v.minStartTime)
+            && params.endTime <= U256::from(v.maxEndTime)
+            && params.maxTokenSupplyForStage <= U256::from(v.maxMaxTokenSupplyForStage)
+            && params.feeBps >= U256::from(v.minFeeBps)
+            && params.feeBps <= U256::from(v.maxFeeBps),
+        "SIGNER_REVOKED_OR_PARAMS_CHANGED"
+    );
     Ok(())
 }
 

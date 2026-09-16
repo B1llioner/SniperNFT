@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { Contract, ContractFactory, FetchRequest, Interface, JsonRpcProvider, Transaction, Wallet, keccak256, parseEther, toBeHex, toQuantity } from 'ethers';
 import solc from 'solc';
+import { WebSocketServer } from 'ws';
 
 // All keys, signatures and balances in this file belong to fresh non-forked
 // local EVMs. These tests exercise the real Rust binary and production factory,
@@ -104,7 +105,7 @@ async function fixture(t, overrides = {}, { initialSupply = 0 } = {}) {
     headLag: null, activeHeadLag: null, laggedReceipts: new Set(), sentActions: new Map(),
     laggedHeads: [], runtimeReads: [], pendingNonceBehindBy: 0, nonceReads: [],
     factoryRuntimeFault: null, factoryRuntimeFaultReads: 0,
-    rpcBeforeHook: null, rpcAfterHook: null, rpcResponseHook: null, submissionHeads: [],
+    rpcBeforeHook: null, rpcAfterHook: null, rpcResponseHook: null, eventHook: null, submissionHeads: [],
     finalSimulations: [], finalSimulationFault: null };
   const stateRoot = join(directory, 'registry');
   const statePath = join(stateRoot, `4663-${WALLET}`, 'state.json');
@@ -264,9 +265,18 @@ async function run(c, action, overrides = {}, extraArgs = []) {
   const invocation = { action, privateKeyProvided: false };
   c.invocations.push(invocation); c.activeInvocation = invocation;
   const child = spawn(BINARY, args, { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
-  let stdout = '', stderr = '', timedOut = false;
+  let stdout = '', stderr = '', timedOut = false, eventBuffer = '';
+  const eventTasks = [];
   child.stdout.on('data', data => {
     stdout += data;
+    eventBuffer += data;
+    const lines = eventBuffer.split('\n'); eventBuffer = lines.pop();
+    for (const line of lines) {
+      if (c.eventHook && line.startsWith('{')) {
+        eventTasks.push(Promise.resolve().then(() => c.eventHook(JSON.parse(line)))
+          .catch(error => c.handlerFailures.push(error)));
+      }
+    }
     if (stdout.length > 262144) child.kill('SIGKILL');
     if (action === 'check-children' && !invocation.privateKeyProvided
       && stdout.split('\n').slice(0, -1).some(line => line.startsWith('{') && line.endsWith('}')
@@ -288,6 +298,7 @@ async function run(c, action, overrides = {}, extraArgs = []) {
   }
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   clearTimeout(timer);
+  await Promise.all(eventTasks);
   assert.equal(timedOut, false, `CLI timed out: ${stdout}\n${stderr}`);
   assert.ok(!stdout.includes(KEY) && !stderr.includes(KEY), 'Synthetic private key must remain hidden.');
   assert.ok(!stdout.includes(API_KEY) && !stderr.includes(API_KEY), 'API key/error body must remain hidden.');
@@ -667,6 +678,262 @@ function noOpenSea(c) {
   assert.equal(c.authRequests.length, 0, 'Public mode needs no automatic API key.');
 }
 
+function exactMintSimulation(c, rpc) {
+  const call = rpc.params[0];
+  return rpc.method === 'eth_call' && call?.gas && call.from?.toLowerCase() === WALLET.toLowerCase()
+    && [BATCH_SELECTOR, c.route.interface.getFunction('mintSigned').selector,
+      c.route.interface.getFunction('mintPublic').selector].includes(call.data?.slice(0, 10));
+}
+
+test('Rust CLI reports actual public price, window, wallet limit, fee and supply changes with previous/current values',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 1 });
+    const now = (await c.provider.getBlock('latest')).timestamp;
+    const release = now + 300, movedStart = now + 150, movedEnd = now + 7200;
+    let changed = false, restored = false;
+    c.eventHook = async event => {
+      if (event.event === 'waiting' && !changed) {
+        changed = true;
+        assert.equal(c.submissions.length, 0);
+        await (await c.route.mintPublic(c.nft.target, c.fee, await c.owner.getAddress(), 1)).wait();
+        await publicDrop(c, movedStart, movedEnd, { mintPrice: 1, maxTotalMintableByWallet: 2,
+          feeBps: 2000, restrictFeeRecipients: false });
+      }
+      if (event.event === 'drop_state_changed' && event.current.publicWindows[0].mintPriceWei === '1' && !restored) {
+        restored = true;
+        assert.equal(c.submissions.length, 0, 'A paid or not-yet-open updated stage cannot trigger our free mint.');
+        await publicDrop(c, movedStart, movedEnd, { maxTotalMintableByWallet: 2, feeBps: 2000, restrictFeeRecipients: false });
+        await mineAt(c, release);
+      }
+    };
+    const result = await run(c, 'start', { waitUntilTimestamp: release }); success(result);
+    assert.equal(changed, true); assert.equal(restored, true);
+    const changes = result.events.filter(event => event.event === 'drop_state_changed');
+    const policyChange = changes.find(event => event.current.publicWindows[0].mintPriceWei === '1');
+    assert.ok(policyChange, 'The changed storage must be reported despite an unchanged contract runtime.');
+    const previous = policyChange.previous.publicWindows[0], current = policyChange.current.publicWindows[0];
+    assert.equal(previous.mintPriceWei, '0'); assert.equal(current.mintPriceWei, '1');
+    assert.equal(previous.start, 1); assert.equal(current.start, movedStart);
+    assert.equal(previous.end, 281474976710655); assert.equal(current.end, movedEnd);
+    assert.equal(previous.walletLimit, 1); assert.equal(current.walletLimit, 2);
+    assert.equal(previous.feeBps, 1000); assert.equal(current.feeBps, 2000);
+    assert.equal(previous.restrictFeeRecipients, true); assert.equal(current.restrictFeeRecipients, false);
+    assert.equal(previous.free, true); assert.equal(current.free, false);
+    assert.ok(changes.some(event => event.previous.remaining === 1024 && event.current.remaining === 1023));
+    assert.equal(policyChange.previous.maxSupply, 1024); assert.equal(policyChange.current.maxSupply, 1024);
+    assert.deepEqual(policyChange.previous.allowedSeaDrop, policyChange.current.allowedSeaDrop);
+    assert.equal(policyChange.preparationDiscarded, true, 'The locally held old public batch must be invalidated.');
+    assert.equal(c.submissions.length, 1); assert.equal(await c.nft.total(), 2n);
+    assert.equal(await c.nft.ownerOf(1), await c.owner.getAddress()); assert.equal(await c.nft.ownerOf(2), WALLET);
+    assert.ok(BigInt(c.submissionHeads[0].head.timestamp) >= BigInt(release)); noOpenSea(c);
+    const journal = await readFile(join(c.stateRoot, `4663-${WALLET}`, 'events.jsonl'), 'utf8');
+    assert.ok(journal.includes('drop_state_changed'));
+    assert.ok(!journal.includes(KEY) && !journal.includes(API_KEY), 'Change notifications must never persist credentials.');
+  });
+
+async function watchFixture(t, c, { rejectSubscriptions = false } = {}) {
+  const server = createServer((_req, res) => { res.writeHead(404); res.end(); });
+  const wss = new WebSocketServer({ server });
+  const connections = [];
+  wss.on('connection', socket => {
+    const connection = { socket, subscriptions: new Map() }; connections.push(connection);
+    socket.on('message', message => {
+      try {
+        const rpc = JSON.parse(message.toString());
+        assert.equal(rpc.jsonrpc, '2.0');
+        if (rpc.method === 'eth_chainId') {
+          socket.send(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: '0x1237' })); return;
+        }
+        assert.equal(rpc.method, 'eth_subscribe'); assert.equal(rpc.params[0], 'logs');
+        if (rejectSubscriptions) {
+          socket.send(JSON.stringify({ jsonrpc: '2.0', id: rpc.id,
+            error: { code: -32601, message: `private subscription error ${API_KEY}` } }));
+          return;
+        }
+        const filter = rpc.params[1];
+        let kind;
+        if (typeof filter.address === 'string') {
+          assert.equal(filter.address.toLowerCase(), c.nft.target.toLowerCase()); kind = 'nft';
+        } else {
+          assert.deepEqual(filter.address.map(value => value.toLowerCase()), [c.route.target.toLowerCase()]);
+          assert.deepEqual(filter.topics, [null, '0x' + c.nft.target.slice(2).toLowerCase().padStart(64, '0')]);
+          kind = 'route';
+        }
+        const subscription = kind === 'nft' ? '0x01' : '0x02';
+        connection.subscriptions.set(kind, subscription);
+        socket.send(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: subscription }));
+      } catch (error) { c.handlerFailures.push(error); socket.close(); }
+    });
+  });
+  const port = await listen(server);
+  t.after(async () => {
+    for (const connection of connections) connection.socket.terminate();
+    await new Promise(resolve => wss.close(resolve));
+    await close(server);
+  });
+  return { url: `ws://127.0.0.1:${port}`, connections,
+    notify(log, kind = 'nft') {
+      const connected = connections.filter(connection => connection.socket.readyState === 1);
+      assert.equal(connected.length, 1, 'The test must use a live persistent watcher connection.');
+      const { socket, subscriptions } = connected[0];
+      assert.equal(subscriptions.size, 2, 'Both scoped subscriptions must be established before a notification.');
+      socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'eth_subscription',
+        params: { subscription: subscriptions.get(kind), result: log } }));
+    } };
+}
+
+test('Rust CLI WSS NFT event wakes a distant ten-second public wait and rechecks real onchain settings before minting',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 1 });
+    const watcher = await watchFixture(t, c);
+    const now = (await c.provider.getBlock('latest')).timestamp;
+    await publicDrop(c, now + 3600);
+    let notifiedAt, mintedAt;
+    c.eventHook = async event => {
+      if (event.event === 'waiting' && event.pollIntervalMs === 10000 && notifiedAt === undefined) {
+        notifiedAt = 0; // Arm once even if several structured events arrive together.
+        assert.equal(c.submissions.length, 0); assert.equal(c.finalSimulations.length, 0);
+        await publicDrop(c, 1, now + 7200);
+        const competitor = await c.route.mintPublic(c.nft.target, c.fee, await c.owner.getAddress(), 1);
+        const receipt = await competitor.wait();
+        const rawReceipt = await c.provider.send('eth_getTransactionReceipt', [receipt.hash]);
+        const log = rawReceipt.logs.find(entry => entry.address.toLowerCase() === c.nft.target.toLowerCase());
+        assert.ok(log, 'Wake with a genuine local EVM NFT Transfer log.');
+        await delay(100);
+        notifiedAt = performance.now();
+        watcher.notify(log);
+      }
+      if (event.event === 'mint_result') mintedAt = performance.now();
+    };
+    const result = await run(c, 'start', { watchRpc: watcher.url }); success(result);
+    assert.ok(notifiedAt > 0 && mintedAt > notifiedAt, 'The event must arrive while the ten-second wait is armed.');
+    assert.ok(mintedAt - notifiedAt < 4000, `WSS wake must interrupt the 10s timer; observed ${mintedAt - notifiedAt} ms.`);
+    t.diagnostic(`Local WSS event to mint_result: ${Math.round(mintedAt - notifiedAt)} ms, including RPC checks, simulation and receipt.`);
+    assert.equal(c.submissions.length, 1); assert.equal(c.finalSimulations.length, 1);
+    assert.equal(await c.nft.ownerOf(1), await c.owner.getAddress());
+    assert.equal(await c.nft.ownerOf(2), WALLET); noOpenSea(c);
+  });
+
+test('Rust CLI degrades after three rejected WSS subscriptions and continues one-second HTTP polling without duplicate sends',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 1 });
+    const watcher = await watchFixture(t, c, { rejectSubscriptions: true });
+    const start = (await c.provider.getBlock('latest')).timestamp + 3600;
+    await publicDrop(c, start);
+    let degraded = false;
+    const fallbackReads = [];
+    c.eventHook = event => {
+      if (event.event === 'drop_watch' && event.status === 'degraded') {
+        assert.equal(event.failures, 3); degraded = true;
+      }
+    };
+    c.rpcAfterHook = async rpc => {
+      if (!degraded || !isPublicDropRead(c, rpc) || fallbackReads.length >= 4) return;
+      fallbackReads.push(performance.now());
+      if (fallbackReads.length === 4) {
+        assert.equal(c.submissions.length, 0); assert.equal(c.finalSimulations.length, 0);
+        await mineAt(c, start);
+      }
+    };
+    const result = await run(c, 'start', { watchRpc: watcher.url }); success(result);
+    assert.equal(degraded, true); assert.equal(watcher.connections.length, 3);
+    assert.equal(fallbackReads.length, 4);
+    const gaps = fallbackReads.slice(1).map((time, index) => time - fallbackReads[index]);
+    assert.ok(gaps.every(gap => gap < 2500), `Failed WSS must not retain a 10s poll: ${gaps}`);
+    assert.ok(gaps.some(gap => gap >= 600), `A closed watch channel must not spin without a timer: ${gaps}`);
+    assert.ok(result.events.some(event => event.event === 'waiting' && event.pollIntervalMs === 1000));
+    assert.equal(c.submissions.length, 1); assert.equal(await c.nft.balanceOf(WALLET), 1n); noOpenSea(c);
+  });
+
+test('Rust CLI discards a public batch when a newer block moves the window after its final exact simulation',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'public', quantity: 1 });
+    let movedStart, invalidated = false;
+    c.rpcAfterHook = async rpc => {
+      if (movedStart !== undefined || !exactMintSimulation(c, rpc)) return;
+      assert.equal(c.finalSimulations.length, 1); assert.equal(c.submissions.length, 0);
+      movedStart = (await c.provider.getBlock('latest')).timestamp + 60;
+      await publicDrop(c, movedStart);
+    };
+    c.eventHook = async event => {
+      if (event.event !== 'preparation_invalidated' || invalidated) return;
+      invalidated = true;
+      assert.equal(c.submissions.length, 0, 'No old simulated transaction may escape before invalidation.');
+      assert.ok(movedStart !== undefined);
+      await mineAt(c, movedStart);
+    };
+    const result = await run(c, 'start'); success(result);
+    assert.equal(invalidated, true); noOpenSea(c);
+    assert.equal(c.finalSimulations.length, 2, 'A new current-state simulation must replace the discarded one.');
+    assert.equal(c.submissions.length, 1); assert.equal(await c.nft.balanceOf(WALLET), 1n);
+    assert.ok(BigInt(c.submissionHeads[0].head.timestamp) >= BigInt(movedStart));
+    assert.equal((await state(c)).pending, null);
+  });
+
+test('Rust CLI replaces a signed payload when its signer is revoked in a newer block after the final simulation',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const c = await fixture(t, { mode: 'signed', quantity: 1 });
+    let rotated = false;
+    c.rpcAfterHook = async rpc => {
+      if (rotated || !exactMintSimulation(c, rpc)) return;
+      rotated = true;
+      assert.equal(c.apiRequests.length, 1); assert.equal(c.submissions.length, 0);
+      c.signer = Wallet.createRandom();
+      await (await c.route.setSigner(c.signer.address)).wait();
+    };
+    const result = await run(c, 'start'); success(result);
+    assert.equal(rotated, true);
+    assert.equal(c.submissions.length, 1, 'The revoked signature must never be submitted.');
+    assert.equal(c.apiRequests.length, 2, 'The old payload must be discarded and replaced by the new signer.');
+    assert.equal(c.finalSimulations.length, 2);
+    assert.ok(result.events.some(event => event.event === 'preparation_invalidated'));
+    assert.equal(await c.nft.balanceOf(WALLET), 1n); assert.equal((await state(c)).pending, null);
+  });
+
+for (const permanent of [false, true]) {
+  test(`Rust CLI waiting reader ${permanent ? 'stops after three consecutive HTTP 503 failures with zero mint sends' : 'recovers a transient HTTP 503 and mints using the current window'}`,
+    { timeout: 60_000 }, async t => {
+      if (!await available(t)) return;
+      const c = await fixture(t, { mode: 'public', quantity: 2, waitTimeoutSecs: 15 });
+      success(await run(c, 'prepare'));
+      const saved = await state(c);
+      const start = (await c.provider.getBlock('latest')).timestamp + 3600;
+      await publicDrop(c, start);
+      let armed = false, readerFailures = 0, recovered = false;
+      c.eventHook = event => { if (event.event === 'waiting') armed = true; };
+      c.rpcResponseHook = async (rpc, route, res) => {
+        if (!armed || route !== '/reader' || rpc.method !== 'eth_getBlockByNumber' || rpc.params[0] !== 'latest') return false;
+        if (permanent || readerFailures === 0) {
+          ++readerFailures;
+          res.writeHead(503, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ diagnostic: `private reader response ${API_KEY}` }));
+          return true;
+        }
+        if (!recovered) { recovered = true; await mineAt(c, start); }
+        return false;
+      };
+      const result = await run(c, 'start');
+      assert.equal(armed, true); noOpenSea(c); assert.equal((await state(c)).factory, saved.factory);
+      assert.equal((await state(c)).pending, null);
+      if (permanent) {
+        assert.notEqual(result.code, 0); assert.equal(readerFailures, 3);
+        assert.match(result.stderr, /READ.*(?:FAILED|FAILURE|STOPPED)|THREE_CONSECUTIVE/);
+        assert.equal(c.submissions.length, 2); assert.equal(c.finalSimulations.length, 0);
+        assert.equal(await c.nft.balanceOf(WALLET), 0n);
+      } else {
+        success(result); assert.equal(readerFailures, 1); assert.equal(recovered, true);
+        assert.equal(c.submissions.length, 3); assert.equal(await c.nft.balanceOf(WALLET), 2n);
+        assert.ok(BigInt(c.submissionHeads.at(-1).head.timestamp) >= BigInt(start));
+      }
+      assert.equal(c.submissions.filter(tx => tx.to === null).length, 1, 'A reader reconnect must not redeploy the factory.');
+    });
+}
+
 test('Rust CLI public setup reuses two children, adds eight, waits for tomorrow onchain, and mints ten without an API key',
   { timeout: 60_000 }, async t => {
     if (!await available(t)) return;
@@ -697,7 +964,7 @@ test('Rust CLI public setup reuses two children, adds eight, waits for tomorrow 
     assert.deepEqual([await factory.children(0), await factory.children(1)], existing);
     assert.equal(await factory.childCount(), 10n); assert.equal(await c.nft.total(), 920n);
     for (let id = 911; id <= 920; ++id) assert.equal(await c.nft.ownerOf(id), WALLET);
-    assert.ok(result.events.some(event => event.event === 'waiting' && event.pollIntervalMs === 10000
+    assert.ok(result.events.some(event => event.event === 'waiting' && event.pollIntervalMs === 1000
       && event.waitTimeoutSecs === 172800));
     assert.ok(result.events.some(event => event.event === 'mint_result' && event.minted === 10));
     const mintHeads = c.submissionHeads.filter(entry => entry.action === 'mint');
