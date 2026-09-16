@@ -134,6 +134,20 @@ filesystem reports 4,997,590,810,624 bytes total and, at the second observation,
 4,949,826,854,912 bytes available. Nitro was waiting for its snapshot dependency
 with zero restarts; unavailable local RPC during this stage is expected.
 
+At **21:47:24 UTC**, 108,148,944,896 bytes had been downloaded (13.74%), with
+4,849,598,611,456 bytes available. The official reference RPC check passed.
+Ethereum execution RPC returned chain ID 1 and the beacon endpoint reported
+`is_syncing=false` with the actual Go client User-Agent. Both host clocks
+reported chrony `Leap status: Normal`; reported clock offsets are not a
+guarantee of absolute UTC accuracy.
+
+All 21 configured Nitro CLI arguments were accepted by the pinned image in a
+disposable container with `--network none --read-only` and an appended `--help`.
+That validation exited 0 without attaching or writing the snapshot/database.
+It checks argument compatibility; database restore and completed sync are still
+pending. The existing minter host has separately received the parallel-read
+upgrade and passed read-only preflight; see `GENESIS_PARALLEL_PREFLIGHT_REVIEW.md`.
+
 The reviewed bootstrap, status helper, placeholder spec, and regression tests are versioned
 under `ops/robinhood-node/`. The default bootstrap mode is read-only planning;
 the actual spec must name the intended instance and its observed blank disks.
