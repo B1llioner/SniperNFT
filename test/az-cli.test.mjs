@@ -14,6 +14,16 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = join(ROOT, 'az-benchmark.mjs');
 const SECRET = 'synthetic-not-a-key-or-query-token';
 
+test('connect-ip CLI/config is validated before network use', () => {
+  const args = parseAzArgs(['probe', '--label', 'pin-test', '--connect-ip', '192.0.2.10']);
+  assert.equal(resolveAzOptions(args).connectIp, '192.0.2.10');
+  assert.equal(resolveAzOptions({ label: 'pin-test' }, { connectIp: '192.0.2.20' }).connectIp, '192.0.2.20');
+  for (const value of ['hostname', '::1', '127.1', '192.0.2.1\n']) {
+    assert.throws(() => resolveAzOptions({ label: 'pin-test', 'connect-ip': value }), /connectIp/);
+  }
+  assert.throws(() => resolveAzOptions({ label: 'pin-test', family: 6, 'connect-ip': '192.0.2.1' }), /connectIp/);
+});
+
 async function directory(t) {
   const path = await mkdtemp(join(tmpdir(), 'az-cli-test-'));
   t.after(() => rm(path, { recursive: true, force: true }));

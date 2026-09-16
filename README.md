@@ -14,6 +14,8 @@
 
 **Микро-бенчмарки Rust и WebSocket:** [Rust HTTP/1.1](rust-sequencer-probe/README.md) измеряет тот же `arb_checkPublisherHealth` с учётом реального повторного использования соединения. [WebSocket CLI](websocket-sequencer-probe/README.md) измеряет ping/pong официального feed и отдельно проверяет поддержку JSON-RPC через WebSocket. Задержка feed не равна задержке приёма транзакции; сравнивайте HTTP-клиенты на одинаковых серверах в общем временном окне, учитывая ошибки и число успешных измерений.
 
+**Node/Rust на одном IP и собственный WebSocket:** `python3 transport-benchmark.py --duration-seconds 600 --output-dir .state/transport-run-01` запускает пять клиентов и печатает p50/p95/p99. [Подготовка и методика](TRANSPORT_BENCHMARK.md).
+
 **Деплой и ожидание одной командой:** `npm run launch -- --config batch.config.json --send`. Для уже развёрнутой фабрики: `npm run start -- --config batch.config.json --send`. Фабрика сохраняется отдельно в `.state/`; повторный запуск сначала проверяет сохранённый адрес или незавершённый деплой. Для отправки нужен `PRIVATE_KEY` в окружении. Подробности — в [RUNNING.md](RUNNING.md).
 
 **Прямая отправка в sequencer:** `npm run launch:sequencer -- --config batch.config.json --send` выполняет деплой → проверку → ожидание → минт. С готовой фабрикой: `npm run start:sequencer -- --config batch.config.json --send`. Можно задать `--wait-until-timestamp` и/или `--wait-until-block`; без них ожидание следует актуальному окну SeaDrop. [Готовый конфиг](batch.config.sequencer.example.json), [маршрут и условия ожидания](RUNNING.md#запуск-через-sequencer).

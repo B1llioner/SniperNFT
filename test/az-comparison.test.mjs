@@ -6,6 +6,14 @@ import {
 
 const BASE = Date.parse('2026-09-16T12:00:00.000Z');
 const iso = seconds => new Date(BASE + seconds * 1000).toISOString();
+
+test('comparison requires identical routing pins and preserves old unpinned reports', () => {
+  assert.equal(compareAzReports([report('a'), report('b')]).comparable, true);
+  assert.equal(compareAzReports([report('a', 10, { connectIp: '192.0.2.10' }), report('b', 10, { connectIp: '192.0.2.10' })]).comparable, true);
+  assert.throws(() => compareAzReports([report('a'), report('b', 10, { connectIp: '192.0.2.10' })]), /same endpoint/);
+  assert.throws(() => compareAzReports([report('a', 10, { connectIp: '192.0.2.10' }), report('b', 10, { connectIp: '192.0.2.11' })]), /same endpoint/);
+  assert.throws(() => compareAzReports([report('a', 10, { connectIp: 'hostname' }), report('b')]), /pinned IPv4/);
+});
 const sample = (seconds, total = 10, extra = {}) => ({
   kind: 'warm', timestamp: iso(seconds), ok: true, reusedSocket: true, tlsSessionReused: false,
   timingsMs: { firstByte: total / 2, total }, remoteAddress: '192.0.2.10', remoteFamily: 4, httpStatus: 200,

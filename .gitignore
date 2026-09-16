@@ -9,3 +9,5 @@ az-benchmark.config.json
 .state/
 *.log
 .DS_Store
+__pycache__/
+*.py[cod]

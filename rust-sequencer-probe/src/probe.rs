@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -63,6 +63,19 @@ pub struct Sample {
     pub error_code: Option<ProbeError>,
 }
 
+/// Lifetime counters include warmup and interrupted requests, unlike measured samples.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionStats {
+    pub dns_lookups: u64,
+    pub tcp_connect_attempts: u64,
+    pub tcp_connections_opened: u64,
+    pub tls_handshakes_completed: u64,
+    pub http_connections_opened: u64,
+    pub requests_attempted: u64,
+    pub requests_on_reused_connection: u64,
+}
+
 trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Stream for T {}
 
@@ -83,10 +96,12 @@ impl Drop for Connection {
 
 pub struct Probe {
     endpoint: Endpoint,
+    connect_ip: Option<Ipv4Addr>,
     timeout: Duration,
     tls: TlsConnector,
     connection: Option<Connection>,
     next_connection: u64,
+    stats: ConnectionStats,
 }
 
 impl Probe {
@@ -98,14 +113,27 @@ impl Probe {
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Self {
             endpoint,
+            connect_ip: None,
             timeout,
             tls: TlsConnector::from(Arc::new(config)),
             connection: None,
             next_connection: 0,
+            stats: ConnectionStats::default(),
         }
     }
 
+    /// Set once before requests; the TLS/HTTP identity always comes from the endpoint URL.
+    pub fn with_connect_ip(mut self, connect_ip: Option<Ipv4Addr>) -> Self {
+        self.connect_ip = connect_ip;
+        self
+    }
+
+    pub fn connection_stats(&self) -> ConnectionStats {
+        self.stats
+    }
+
     pub async fn sample(&mut self, id: u64) -> Sample {
+        self.stats.requests_attempted += 1;
         let started = Instant::now();
         let mut sample = Sample {
             id,
@@ -133,18 +161,28 @@ impl Probe {
     }
 
     async fn connect(&mut self) -> Result<Connection, ProbeError> {
-        let addresses = lookup_host((self.endpoint.host.as_str(), self.endpoint.port))
-            .await
-            .map_err(|_| ProbeError::DnsError)?;
-        let mut connected = None;
-        // Match the JavaScript CLI's explicit family=4. Tries remain within the single request timeout.
-        for address in addresses.filter(|address| address.is_ipv4()) {
-            if let Ok(stream) = TcpStream::connect(address).await {
-                connected = Some(stream);
-                break;
+        let stream = if let Some(address) = self.connect_ip {
+            self.stats.tcp_connect_attempts += 1;
+            TcpStream::connect((address, self.endpoint.port))
+                .await
+                .map_err(|_| ProbeError::ConnectError)?
+        } else {
+            self.stats.dns_lookups += 1;
+            let addresses = lookup_host((self.endpoint.host.as_str(), self.endpoint.port))
+                .await
+                .map_err(|_| ProbeError::DnsError)?;
+            let mut connected = None;
+            // Match the JavaScript CLI's family=4; all attempts share one request timeout.
+            for address in addresses.filter(|address| address.is_ipv4()) {
+                self.stats.tcp_connect_attempts += 1;
+                if let Ok(stream) = TcpStream::connect(address).await {
+                    connected = Some(stream);
+                    break;
+                }
             }
-        }
-        let stream = connected.ok_or(ProbeError::ConnectError)?;
+            connected.ok_or(ProbeError::ConnectError)?
+        };
+        self.stats.tcp_connections_opened += 1;
         stream
             .set_nodelay(true)
             .map_err(|_| ProbeError::ConnectError)?;
@@ -156,12 +194,13 @@ impl Probe {
         let stream: Box<dyn Stream> = if self.endpoint.tls {
             let name = ServerName::try_from(self.endpoint.host.clone())
                 .map_err(|_| ProbeError::TlsError)?;
-            Box::new(
-                self.tls
-                    .connect(name, stream)
-                    .await
-                    .map_err(|_| ProbeError::TlsError)?,
-            )
+            let stream = self
+                .tls
+                .connect(name, stream)
+                .await
+                .map_err(|_| ProbeError::TlsError)?;
+            self.stats.tls_handshakes_completed += 1;
+            Box::new(stream)
         } else {
             Box::new(stream)
         };
@@ -170,6 +209,7 @@ impl Probe {
             .map_err(|_| ProbeError::NetworkError)?;
         let driver = tokio::spawn(connection);
         self.next_connection += 1;
+        self.stats.http_connections_opened += 1;
         Ok(Connection {
             sender,
             driver,
@@ -192,6 +232,9 @@ impl Probe {
         sample.reused_socket = connection.used;
         sample.connection_id = Some(connection.id);
         sample.remote_address = Some(connection.remote.clone());
+        if connection.used {
+            self.stats.requests_on_reused_connection += 1;
+        }
         connection.used = true;
         let request_id = format!("az-probe-{id}");
         let payload = serde_json::json!({"jsonrpc":"2.0", "id":request_id, "method":"arb_checkPublisherHealth", "params":[]}).to_string();

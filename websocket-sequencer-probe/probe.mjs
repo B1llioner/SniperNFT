@@ -5,6 +5,7 @@ import { hostname, platform, arch, release } from 'node:os';
 import { mkdir, writeFile, link, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isIP, isIPv4 } from 'node:net';
 import WebSocket from 'ws';
 
 export const FEED = 'wss://feed.mainnet.chain.robinhood.com';
@@ -47,7 +48,7 @@ function safeError(error) {
 }
 
 export function probeWebSocket({ endpoint = FEED, mode = 'feed', label = hostname(),
-  durationSeconds = 600, intervalMs = 1000, timeoutMs = 5000, warmup = 5, family = 0, signal } = {}) {
+  durationSeconds = 600, intervalMs = 1000, timeoutMs = 5000, warmup = 5, family = 0, connectIp, signal } = {}) {
   const url = validateEndpoint(endpoint);
   if (!['feed', 'capability'].includes(mode)) throw new Error('Unknown probe mode.');
   if (mode === 'capability' && /^feed\.(mainnet|testnet)\.chain\.robinhood\.com$/.test(url.hostname)) {
@@ -58,6 +59,11 @@ export function probeWebSocket({ endpoint = FEED, mode = 'feed', label = hostnam
   integer(timeoutMs, 'timeoutMs', 50, 60_000);
   integer(warmup, 'warmup', 0, 1000);
   if (![0, 4, 6].includes(family)) throw new Error('family must be 0, 4 or 6.');
+  if (connectIp !== undefined && (typeof connectIp !== 'string' || !isIPv4(connectIp) || family === 6 ||
+      (url.protocol === 'ws:' && !connectIp.startsWith('127.')) ||
+      (isIP(url.hostname.replace(/^\[|\]$/g, '')) && url.hostname !== connectIp))) {
+    throw new Error('connectIp must be an IPv4 address compatible with the endpoint and family; plaintext remains loopback-only.');
+  }
   if (typeof label !== 'string' || !/^[a-zA-Z0-9_.:-]{1,128}$/.test(label)) {
     throw new Error('Label must contain 1–128 letters, digits, dots, colons, underscores or dashes.');
   }
@@ -68,7 +74,7 @@ export function probeWebSocket({ endpoint = FEED, mode = 'feed', label = hostnam
     metric: mode === 'feed' ? 'websocket-control-ping-round-trip' : 'websocket-json-rpc-capability',
     limitation: 'Feed ping RTT and stream arrival are not transaction acceptance or inclusion latency.',
     startedAt: new Date(startedWall).toISOString(), completed: false,
-    settings: { durationSeconds, intervalMs, timeoutMs, warmup, family, maxMessageBytes: MAX_MESSAGE_BYTES,
+    settings: { durationSeconds, intervalMs, timeoutMs, warmup, family, connectIp, maxMessageBytes: MAX_MESSAGE_BYTES,
       autoReconnect: false, redirects: false, compression: false },
     host: { hostname: hostname(), node: process.version, ws: '8.21.3', platform: platform(), arch: arch(), release: release() },
     connection: { opened: false, attempts: 0, reconnects: 0, disconnects: 0 },
@@ -130,7 +136,11 @@ export function probeWebSocket({ endpoint = FEED, mode = 'feed', label = hostnam
       report.connection.attempts++;
       ws = new WebSocket(url, { handshakeTimeout: timeoutMs, followRedirects: false,
         rejectUnauthorized: true, perMessageDeflate: false, maxPayload: MAX_MESSAGE_BYTES,
-        maxFragments: 4096, maxBufferedChunks: 4096, family });
+        maxFragments: 4096, maxBufferedChunks: 4096, family,
+        ...(connectIp === undefined ? {} : { lookup(_hostname, options, callback) {
+          queueMicrotask(() => options.all ? callback(null, [{ address: connectIp, family: 4 }]) : callback(null, connectIp, 4));
+        } }),
+      });
     } catch (error) { errors(safeError(error)); finish('CONNECT_ERROR'); return; }
     ws.on('error', error => {
       if (done) return;
@@ -227,7 +237,7 @@ export function parseArgs(args) {
   if (args[0] === 'capability') { options.mode = 'capability'; options.endpoint = SEQUENCER_WS_HYPOTHESIS; args = args.slice(1); }
   else if (args[0] === 'probe') args = args.slice(1);
   const names = { '--endpoint': 'endpoint', '--duration-seconds': 'durationSeconds', '--interval-ms': 'intervalMs',
-    '--timeout-ms': 'timeoutMs', '--warmup': 'warmup', '--label': 'label', '--output': 'output', '--start-at': 'startAt', '--family': 'family' };
+    '--timeout-ms': 'timeoutMs', '--warmup': 'warmup', '--label': 'label', '--output': 'output', '--start-at': 'startAt', '--family': 'family', '--connect-ip': 'connectIp' };
   const numbers = new Set(['durationSeconds', 'intervalMs', 'timeoutMs', 'warmup', 'family']);
   const seen = new Set();
   for (let i = 0; i < args.length; i++) {
@@ -249,7 +259,7 @@ export function parseArgs(args) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log('node probe.mjs [probe|capability] [--endpoint WSS_URL] [--duration-seconds 600] [--interval-ms 1000] [--timeout-ms 5000] [--warmup 5] [--family 0|4|6] [--start-at ISO_UTC] [--label NAME] [--output report.json]');
+    console.log('node probe.mjs [probe|capability] [--endpoint WSS_URL] [--duration-seconds 600] [--interval-ms 1000] [--timeout-ms 5000] [--warmup 5] [--family 0|4|6] [--connect-ip IPV4] [--start-at ISO_UTC] [--label NAME] [--output report.json]');
     return;
   }
   const controller = new AbortController();

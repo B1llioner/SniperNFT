@@ -35,6 +35,11 @@ test('input boundaries and feed JSON-RPC protection fail before network activity
   assert.throws(() => probeWebSocket({ durationSeconds: 3601 }));
   assert.throws(() => probeWebSocket({ warmup: -1 }));
   assert.throws(() => probeWebSocket({ family: 5 }));
+  assert.throws(() => probeWebSocket({ connectIp: 'hostname' }));
+  assert.throws(() => probeWebSocket({ connectIp: '::1' }));
+  assert.throws(() => probeWebSocket({ connectIp: '192.0.2.1', family: 6 }));
+  assert.throws(() => probeWebSocket({ endpoint: 'ws://localhost', connectIp: '192.0.2.1' }));
+  assert.throws(() => probeWebSocket({ endpoint: 'ws://127.0.0.1', connectIp: '127.0.0.2' }));
   assert.throws(() => probeWebSocket({ label: 'a\nb' }));
   assert.throws(() => probeWebSocket({ mode: 'other' }));
   assert.throws(() => probeWebSocket({ mode: 'capability', endpoint: FEED }));
@@ -43,6 +48,23 @@ test('input boundaries and feed JSON-RPC protection fail before network activity
   assert.throws(() => parseArgs(['--endpoint', FEED, '--endpoint', FEED]));
   assert.throws(() => parseArgs(['--unknown', 'true']));
   assert.throws(() => parseArgs(['--output']));
+});
+
+test('pinned WebSocket routing keeps Host and one connection', async t => {
+  let host, connections = 0;
+  const ws = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  ws.on('connection', (socket, request) => { connections++; host = request.headers.host; socket.on('error', () => {}); });
+  await once(ws, 'listening');
+  t.after(async () => { for (const client of ws.clients) client.terminate(); await new Promise(resolve => ws.close(resolve)); });
+  const endpoint = `ws://localhost:${ws.address().port}`;
+  const report = await probeWebSocket({ endpoint, connectIp: '127.0.0.1', durationSeconds: 1, intervalMs: 100, warmup: 0 });
+  assert.equal(report.completed, true);
+  assert.equal(report.connection.remoteAddress, '127.0.0.1');
+  assert.equal(report.settings.connectIp, '127.0.0.1');
+  assert.equal(host, new URL(endpoint).host);
+  assert.equal(connections, 1);
+  assert.ok(report.pingRttMs.count >= 5);
+  assert.equal(parseArgs(['--connect-ip', '127.0.0.1']).connectIp, '127.0.0.1');
 });
 
 test('real control ping/pong matches payload, excludes warmup, counts stream without retaining it', async t => {

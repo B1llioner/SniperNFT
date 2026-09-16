@@ -1,12 +1,12 @@
-use std::{collections::BTreeMap, process::ExitCode, time::Duration};
+use std::{collections::BTreeMap, net::Ipv4Addr, process::ExitCode, time::Duration};
 
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use rust_sequencer_probe::{
     Distribution,
-    config::{Args, Endpoint},
+    config::Args,
     distribution,
-    probe::{Probe, ProbeError, Sample},
+    probe::{ConnectionStats, Probe, ProbeError, Sample},
 };
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -38,6 +38,7 @@ struct Settings {
     interval_ms: u64,
     timeout_ms: u64,
     warmup_samples: u64,
+    connect_ip: Option<Ipv4Addr>,
 }
 
 #[derive(Serialize)]
@@ -77,6 +78,7 @@ struct Report {
     interrupted: bool,
     clock_drift_ms: Option<f64>,
     warmup: Warmup,
+    connection_stats: ConnectionStats,
     skipped_slots: u64,
     metrics: Option<Metrics>,
     samples: Vec<Observation>,
@@ -153,15 +155,14 @@ async fn warmup(probe: &mut Probe, report: &mut Report, id: &mut u64, interval: 
 
 async fn run(
     args: &Args,
-    endpoint: Endpoint,
+    probe: &mut Probe,
     scheduled: Option<OffsetDateTime>,
     report: &mut Report,
 ) -> Result<()> {
     let interval = Duration::from_millis(args.interval_ms);
-    let mut probe = Probe::new(endpoint, Duration::from_millis(args.timeout_ms));
     let mut id = 0;
     for _ in 0..args.warmup {
-        warmup(&mut probe, report, &mut id, interval).await;
+        warmup(probe, report, &mut id, interval).await;
     }
     if let Some(target) = scheduled {
         ensure!(
@@ -171,7 +172,7 @@ async fn run(
         while (target - OffsetDateTime::now_utc()).whole_milliseconds()
             > i128::from(args.timeout_ms + args.interval_ms)
         {
-            warmup(&mut probe, report, &mut id, interval).await;
+            warmup(probe, report, &mut id, interval).await;
         }
         let remaining = target - OffsetDateTime::now_utc();
         if remaining.is_positive() {
@@ -276,6 +277,7 @@ async fn execute(args: Args) -> Result<ExitCode> {
             interval_ms: args.interval_ms,
             timeout_ms: args.timeout_ms,
             warmup_samples: args.warmup,
+            connect_ip: args.connect_ip,
         },
         scheduled_start_at: args.start_at.clone(),
         started_at: now.clone(),
@@ -284,6 +286,7 @@ async fn execute(args: Args) -> Result<ExitCode> {
         interrupted: false,
         clock_drift_ms: None,
         warmup: Warmup::default(),
+        connection_stats: ConnectionStats::default(),
         skipped_slots: 0,
         metrics: None,
         samples: Vec::new(),
@@ -293,10 +296,18 @@ async fn execute(args: Args) -> Result<ExitCode> {
         "{}: warm HTTP/1.1, IPv4, {} s, interval {} ms; {}",
         args.label, args.duration_seconds, args.interval_ms, report.endpoint_origin
     );
+    let mut probe = Probe::new(endpoint, Duration::from_millis(args.timeout_ms))
+        .with_connect_ip(args.connect_ip);
+    if let Some(address) = args.connect_ip {
+        println!(
+            "TCP destination pinned to {address}; original Host and verified TLS identity retained"
+        );
+    }
     let result = tokio::select! {
-        result = run(&args, endpoint, scheduled, &mut report) => result,
+        result = run(&args, &mut probe, scheduled, &mut report) => result,
         signal = interrupted() => { signal?; report.interrupted = true; Ok(()) }
     };
+    report.connection_stats = probe.connection_stats();
     if !report.completed {
         report.finished_at = timestamp(OffsetDateTime::now_utc())?;
     }
@@ -318,6 +329,16 @@ async fn execute(args: Args) -> Result<ExitCode> {
         summary.success_reused.p95,
         summary.success_reused.p99,
         summary.eligible_for_comparison
+    );
+    let connections = report.connection_stats;
+    println!(
+        "Transport including warmup: TCP opened={} TLS completed={} HTTP opened={} reused requests={}/{} DNS lookups={}",
+        connections.tcp_connections_opened,
+        connections.tls_handshakes_completed,
+        connections.http_connections_opened,
+        connections.requests_on_reused_connection,
+        connections.requests_attempted,
+        connections.dns_lookups
     );
     let exit = if summary.eligible_for_comparison {
         ExitCode::SUCCESS

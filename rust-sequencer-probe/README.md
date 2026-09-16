@@ -30,11 +30,27 @@ Allow enough preparation time: an already-passed start is rejected.
 bounded to 7,200 seconds; interval is 100–60,000 ms. Use the default 1-second
 interval for the public endpoint. No automatic retries or redirects.
 
+For a controlled comparison, pass `--connect-ip <IPv4>` with a current IPv4 address
+of the official endpoint and configure the other client with that same IP. This
+bypasses DNS for TCP connections while retaining the URL's HTTP `Host`, TLS SNI
+and certificate verification. It does not change the URL to an IP address or
+disable TLS checks. The default remains ordinary DNS resolution; a pinned IP can
+become unavailable, so use this option for a bounded benchmark and refresh DNS
+between runs. A matching IP reduces one source of variation; load balancers may
+still route connections to different upstreams.
+For parity with the Node client, an IP-literal URL must match the supplied IPv4
+pin exactly; IPv6-literal URLs cannot use this IPv4-only pin. Use the hostname URL
+for normal endpoint benchmarking.
+
 ## What is measured
 
 One explicit persistent HTTP/1.1 connection, IPv4, TCP_NODELAY, TLS certificate
 verification. Each sample records whether it actually used the existing connection;
 `connectionId` changes on a successful reconnect. A failed connection is discarded.
+This connection reuse was already present in the original micro probe: the TLS
+client configuration and HTTP sender are created once and retained across requests.
+They are not recreated for every sample. Warm requests do not repeat DNS, TCP or
+TLS setup while the connection remains usable.
 The timer starts before request work and ends after the complete response body and
 JSON-RPC version, request ID and `result: null` have been checked. Response bodies
 are capped at 64 KiB. The full timeout includes DNS, TCP, TLS and stalled bodies.
@@ -59,6 +75,16 @@ connection IDs, remote IPs, errors and nearest-rank p50/p95/p99 in milliseconds.
 Successful reused and fresh connections are summarized separately. Slow requests
 cause skipped slots, never catch-up bursts. Progress prints every 30 seconds.
 
+`settings.connectIp` records the optional destination pin. `connectionStats`
+contains actual lifetime transport counters, **including warmup and interrupted
+requests**: DNS lookups, TCP connect attempts, established TCP connections,
+completed TLS handshakes, HTTP connections, attempted requests and requests on an
+already-used HTTP connection. For example, 605 requests with 604 reused requests,
+one TCP connection and one TLS handshake confirms one persistent HTTPS session.
+Attempted/reused counts can include failures; use sample `ok` and the existing
+success distributions when comparing latency. The existing `metrics.reconnects`
+continues to cover measured samples only. Transport counters also print at exit.
+
 `eligibleForComparison` requires completion, at least 100 successful reused
 samples, at most 1% errors, at least 95% connection reuse among successes, at least
 80% of expected requests and at most 1-second wall-clock drift. It is a per-report
@@ -82,4 +108,6 @@ cargo test --all-targets --all-features
 
 Tests use local HTTP fixtures: real socket reuse/reconnect, protocol errors,
 redirect rejection, oversized bodies, timeout, exclusive output and signal-driven
-partial report. They never call a live sequencer.
+partial report. They verify 16 requests reach one accepted TCP connection and
+pinned TCP routing preserves the original HTTP Host without a DNS lookup. They
+never call a live sequencer.

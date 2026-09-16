@@ -1,4 +1,8 @@
-use std::{path::PathBuf, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    path::PathBuf,
+    time::Duration,
+};
 
 use anyhow::{Result, ensure};
 use clap::Parser;
@@ -16,6 +20,9 @@ pub const DEFAULT_ENDPOINT: &str = "https://sequencer.mainnet.chain.robinhood.co
 pub struct Args {
     #[arg(long, default_value = DEFAULT_ENDPOINT)]
     pub endpoint: String,
+    /// Pin the TCP destination; preserve the endpoint's Host, TLS SNI and certificate checks.
+    #[arg(long)]
+    pub connect_ip: Option<Ipv4Addr>,
     #[arg(long)]
     pub label: String,
     #[arg(long)]
@@ -103,6 +110,16 @@ impl Args {
             "Label must contain 1-64 letters, digits, dots, underscores or hyphens"
         );
         let endpoint = Endpoint::parse(&self.endpoint)?;
+        ensure!(
+            endpoint.tls || self.connect_ip.is_none_or(|address| address.is_loopback()),
+            "HTTP test endpoints require a loopback --connect-ip; use HTTPS for remote hosts"
+        );
+        if let (Some(pin), Ok(host)) = (self.connect_ip, endpoint.host.parse::<IpAddr>()) {
+            ensure!(
+                host == IpAddr::V4(pin),
+                "--connect-ip must match an IP-literal endpoint; use a hostname endpoint to pin routing"
+            );
+        }
         let start = self
             .start_at
             .as_ref()
@@ -158,5 +175,84 @@ mod tests {
         );
         let args = Args::try_parse_from(["probe", "--label", "bad label", "--output", "a.json"]);
         assert!(args.is_ok_and(|args| args.validate().is_err()));
+    }
+
+    #[test]
+    fn connect_ip_accepts_only_ipv4_addresses() -> Result<()> {
+        let args = Args::try_parse_from([
+            "probe",
+            "--label",
+            "test",
+            "--output",
+            "a.json",
+            "--connect-ip",
+            "192.0.2.1",
+        ])?;
+        assert_eq!(args.connect_ip, Some(Ipv4Addr::new(192, 0, 2, 1)));
+        for value in ["::1", "example.com", "300.0.0.1"] {
+            assert!(
+                Args::try_parse_from([
+                    "probe",
+                    "--label",
+                    "test",
+                    "--output",
+                    "a.json",
+                    "--connect-ip",
+                    value,
+                ])
+                .is_err()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pinning_cannot_route_local_http_to_remote_hosts() -> Result<()> {
+        for (address, allowed) in [("127.0.0.1", true), ("192.0.2.1", false)] {
+            let args = Args::try_parse_from([
+                "probe",
+                "--label",
+                "test",
+                "--output",
+                "a.json",
+                "--endpoint",
+                "http://localhost:8080",
+                "--connect-ip",
+                address,
+            ])?;
+            assert_eq!(args.validate().is_ok(), allowed);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pinned_literal_endpoints_must_match_ipv4_address() -> Result<()> {
+        for (endpoint, pin, allowed) in [
+            ("https://192.0.2.1", "192.0.2.1", true),
+            ("https://192.0.2.1", "192.0.2.2", false),
+            ("http://127.0.0.1:8080", "127.0.0.1", true),
+            ("http://127.0.0.1:8080", "127.0.0.2", false),
+            ("https://[::1]", "127.0.0.1", false),
+            ("https://[::ffff:127.0.0.1]", "127.0.0.1", false),
+            ("https://example.com", "192.0.2.1", true),
+        ] {
+            let args = Args::try_parse_from([
+                "probe",
+                "--label",
+                "test",
+                "--output",
+                "a.json",
+                "--endpoint",
+                endpoint,
+                "--connect-ip",
+                pin,
+            ])?;
+            assert_eq!(
+                args.validate().is_ok(),
+                allowed,
+                "{endpoint} pinned to {pin}"
+            );
+        }
+        Ok(())
     }
 }

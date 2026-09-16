@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance, monitorEventLoopDelay } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
 import http from 'node:http';
+import { isIP, isIPv4 } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createAzProbe } from './lib/az-probe.mjs';
@@ -19,7 +20,7 @@ class AzCliError extends Error {}
 const check = (condition, message) => { if (!condition) throw new AzCliError(message); };
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const safeError = error => error instanceof AzCliError ? error.message : 'AZ benchmark failed. Check settings, file permissions and network availability.';
-const CONFIG_KEYS = new Set(['endpoint', 'durationSeconds', 'intervalMs', 'coldIntervalMs', 'timeoutMs', 'family', 'warmupSamples', 'progressIntervalSeconds']);
+const CONFIG_KEYS = new Set(['endpoint', 'connectIp', 'durationSeconds', 'intervalMs', 'coldIntervalMs', 'timeoutMs', 'family', 'warmupSamples', 'progressIntervalSeconds']);
 
 export function parseAzArgs(argv) {
   const tokens = [...argv];
@@ -27,7 +28,7 @@ export function parseAzArgs(argv) {
   if (tokens[0] && !tokens[0].startsWith('--')) args.command = tokens.shift();
   const flags = new Set(['help', 'ec2']);
   const values = new Set(['config', 'endpoint', 'label', 'zone-id', 'zone-name', 'region', 'start-at', 'output',
-    'duration-seconds', 'interval-ms', 'cold-interval-ms', 'timeout-ms', 'family', 'warmup-samples', 'progress-interval-seconds']);
+    'duration-seconds', 'interval-ms', 'cold-interval-ms', 'timeout-ms', 'family', 'connect-ip', 'warmup-samples', 'progress-interval-seconds']);
   for (let index = 0; index < tokens.length; index++) {
     if (!tokens[index].startsWith('--')) {
       check(args.command === 'compare' && args.files.length < 32, 'Only compare accepts positional report paths (up to 32).');
@@ -105,7 +106,12 @@ export function resolveAzOptions(args, config = {}) {
   }
   const family = number(args.family ?? config.family ?? 4, 0, 6, 'family');
   check([0, 4, 6].includes(family), 'family must be 0, 4 or 6.');
-  return { label: args.label, endpoint: url.href,
+  const connectIp = args['connect-ip'] ?? config.connectIp;
+  check(connectIp === undefined || (typeof connectIp === 'string' && isIPv4(connectIp) && family !== 6 &&
+    (url.protocol !== 'http:' || connectIp.startsWith('127.')) &&
+    (!isIP(url.hostname.replace(/^\[|\]$/g, '')) || url.hostname === connectIp)),
+  'connectIp must be an IPv4 address compatible with the endpoint and family; plaintext remains loopback-only.');
+  return { label: args.label, endpoint: url.href, connectIp,
     endpointId: createHash('sha256').update(url.href).digest('hex'), endpointOrigin: url.origin, family,
     settings: {
       durationSeconds: number(args['duration-seconds'] ?? config.durationSeconds ?? 1800, 1, 7200, 'durationSeconds'),
@@ -205,7 +211,7 @@ async function probeCommand(args) {
     const cpu = cpus();
     const createdAt = new Date().toISOString();
     report = { schemaVersion: 1, kind: 'sequencer-az-probe', runId: randomBytes(16).toString('hex'), label: options.label,
-      endpointId: options.endpointId, endpointOrigin: options.endpointOrigin, family: options.family,
+      endpointId: options.endpointId, endpointOrigin: options.endpointOrigin, family: options.family, connectIp: options.connectIp,
       protocol: 'http/1.1', method: 'arb_checkPublisherHealth', settings: options.settings,
       scheduledStartAt: options.scheduledStartAt, createdAt, startedAt: createdAt, finishedAt: createdAt,
       zoneId: placement.zoneId, zoneName: placement.zoneName, region: placement.region, placementSource: options.ec2 ? 'imds-v2' : 'user',
@@ -214,7 +220,7 @@ async function probeCommand(args) {
     await reporter(report);
     console.log(`Probe ${options.label}: ${options.settings.durationSeconds}s, warm every ${options.settings.intervalMs}ms, cold every ${options.settings.coldIntervalMs}ms. Output: ${path}`);
     if (report.zoneId) console.log(`Placement: ${report.region ?? 'unspecified'} / ${report.zoneName ?? 'unspecified'} / ${report.zoneId} (${report.placementSource}).`);
-    probe = createAzProbe({ endpoint: options.endpoint, timeoutMs: options.settings.timeoutMs, family: options.family });
+    probe = createAzProbe({ endpoint: options.endpoint, timeoutMs: options.settings.timeoutMs, family: options.family, connectIp: options.connectIp });
     const warmup = async () => {
       const begin = performance.now();
       const result = await probe.warm();
@@ -341,6 +347,7 @@ probe:
   --cold-interval-ms N          Separate fresh-connection probes, default 30000, 5000..300000.
   --timeout-ms N                Absolute request deadline, default 5000, 100..20000.
   --family N                    IP family 4 (default), 6 or 0 (system selection).
+  --connect-ip IPV4             Pin routing for controlled tests; preserve Host/TLS verification.
   --warmup-samples N            Initial warm requests excluded from measurements, default 5, 0..20.
   --progress-interval-seconds N Default 30, 1..300.
   --config FILE                Dedicated AZ JSON config; flags override it.

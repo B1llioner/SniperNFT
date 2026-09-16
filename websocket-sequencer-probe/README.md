@@ -43,6 +43,12 @@ the next tick is counted as skipped. No catch-up bursts or automatic reconnects.
 Use `--family 4` to force IPv4, `--family 6` for IPv6, or default `--family 0`
 to let the OS/Node resolver choose. Compare runs using the same family setting.
 
+For a controlled client comparison use `--family 4 --connect-ip IPV4` with a
+currently resolved endpoint address. This pins the connection route while keeping
+the URL hostname, Host header, TLS SNI and certificate verification. The report
+records the pin and actual peer address. A shared IP may still route to different
+backend processes; pinning is a test control, not a permanent production setting.
+
 Output JSON and stdout contain:
 
 - Connection/open latency, peer IP/family, TLS protocol, upgrade HTTP status.

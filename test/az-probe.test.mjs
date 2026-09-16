@@ -117,6 +117,24 @@ test('warm probes reuse an actual socket; cold probes use fresh connections and 
   }
 });
 
+test('pinned routing keeps the original Host and reuses the same TCP socket', async t => {
+  const rpc = await fixture(t, healthy);
+  const probe = ownProbe(t, { endpoint: rpc.endpoint, connectIp: '127.0.0.1' });
+  const first = await probe.warm();
+  const second = await probe.warm();
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.reusedSocket, true);
+  assert.equal(first.remoteAddress, '127.0.0.1');
+  assert.equal(Object.hasOwn(first.timingsMs, 'dns'), false, 'pinning must not fabricate a DNS measurement');
+  assert.equal(rpc.requests[0].headers.host, new URL(rpc.endpoint).host);
+  assert.equal(rpc.requests[0].socket, rpc.requests[1].socket);
+  for (const options of [{ connectIp: 'wrong' }, { connectIp: '::1' }, { connectIp: '127.0.0.1', family: 6 },
+    { connectIp: '192.0.2.1' }, { endpoint: 'http://127.0.0.1', connectIp: '127.0.0.2' }]) {
+    assert.throws(() => createAzProbe({ endpoint: rpc.endpoint, ...options }), /connectIp/);
+  }
+});
+
 test('a warm-mode request on a replacement socket remains classified as a new connection', async t => {
   const rpc = await fixture(t, (request, response, payload) => {
     response.setHeader('connection', 'close');
@@ -206,7 +224,12 @@ test('probe rejects oversized declared and streamed bodies and unsupported compr
 test('absolute deadline stops an endless response trickle and releases the socket', async t => {
   let closed;
   const rpc = await fixture(t, (request, response) => {
-    closed = once(request.socket, 'close');
+    // A deadline abort may reset the peer on macOS before 'close'; that is the
+    // expected transport outcome, not a failure of the timeout being tested.
+    closed = new Promise((resolveClose, reject) => {
+      request.socket.once('close', resolveClose);
+      request.socket.once('error', error => { if (error.code !== 'ECONNRESET') reject(error); });
+    });
     response.writeHead(200, { 'content-type': 'application/json' });
     response.write(' ');
     const interval = setInterval(() => response.write(' '), 10);
@@ -278,4 +301,11 @@ test('HTTPS verifies certificates and measures fresh TLS separately from socket 
   assert.equal(untrusted.ok, false);
   assert.equal(untrusted.errorCode, 'TLS_ERROR');
   assert.equal(rpc.requests.length, 4);
+  const pinned = ownProbe(t, { endpoint: rpc.endpoint, connectIp: '127.0.0.1', ca: cert });
+  assert.equal((await pinned.warm()).ok, true);
+  assert.equal((await pinned.warm()).reusedSocket, true);
+  assert.equal(rpc.requests[4].headers.host, new URL(rpc.endpoint).host);
+  assert.equal(rpc.requests[4].socket.servername, 'localhost');
+  const pinnedUntrusted = await ownProbe(t, { endpoint: rpc.endpoint, connectIp: '127.0.0.1' }).warm();
+  assert.equal(pinnedUntrusted.errorCode, 'TLS_ERROR', 'pinning must not disable certificate verification');
 });
