@@ -7,6 +7,10 @@
     "node": ">=18.18"
   },
   "scripts": {
+    "compile:genesis": "node scripts/compile-genesis-child.mjs",
+    "build:genesis": "cargo build --release --locked --manifest-path rust-genesis-minter/Cargo.toml",
+    "genesis": "rust-genesis-minter/target/release/vinos-genesis",
+    "test:genesis": "cargo test --locked --manifest-path rust-genesis-minter/Cargo.toml --all-targets --all-features && cargo build --locked --manifest-path rust-genesis-minter/Cargo.toml && node --test test/genesis-child-evm.test.mjs test/genesis-child-fork.test.mjs test/rust-genesis-minter-evm.test.mjs",
     "mint": "node mint.mjs",
     "batch": "node batch.mjs",
     "launch": "node batch.mjs setup",

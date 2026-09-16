@@ -1,0 +1,36 @@
+{
+  "wallet": "0x1111111111111111111111111111111111111111",
+  "quantity": 10,
+  "minQuantity": 1,
+  "mode": "auto",
+  "nft": "0x116eaa62241751e0c98da43d458600c6c17cd361",
+  "nftCodeHash": "0x7117a374c9b7784cd47f550531292764b04aa3a919089c806a79e47852f14b3c",
+  "routes": [
+    {
+      "seaDrop": "0x00005ea00ac477b1030ce78506496e8c2de24bf5",
+      "codeHash": "0x53e4b9339cf624803c9a7d0195576cca5b917920813508d86b3eb93dcbabeb5c",
+      "feeRecipient": "0x0000a26b00c1f0df003000390027140000faa719"
+    }
+  ],
+  "collectionSlug": "rare-friends-genesis",
+  "readRpc": "https://robinhood-rpc.publicnode.com",
+  "sendRpcUrls": [
+    "https://sequencer.mainnet.chain.robinhood.com"
+  ],
+  "concurrency": 2,
+  "requestTimeoutMs": 10000,
+  "pollIntervalMs": 1000,
+  "payloadRefreshMs": 5000,
+  "maxPayloadAgeMs": 15000,
+  "maxPreflightAgeMs": 2000,
+  "minSignatureRemainingSecs": 5,
+  "waitTimeoutSecs": 86400,
+  "gasPerChild": 1000000,
+  "maxGasCostEth": "0.005",
+  "maxTotalGasCostEth": "0.019",
+  "reserveEth": "0.001",
+  "maxFeePerGasGwei": "10",
+  "maxPriorityFeePerGasGwei": "0",
+  "maxFeeMultiplier": 4,
+  "receiptTimeoutSecs": 120
+}
