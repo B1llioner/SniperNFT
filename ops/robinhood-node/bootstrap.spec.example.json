@@ -1,0 +1,9 @@
+{
+  "instance_id": "REPLACE_WITH_APPROVED_NEW_INSTANCE_ID",
+  "disks": ["/dev/nvme1n1", "/dev/nvme2n1"],
+  "memory_gib": 128,
+  "snapshot_url": "REPLACE_WITH_VERIFIED_OFFICIAL_SNAPSHOT_URL",
+  "snapshot_nitro_version": "REPLACE_WITH_EXACT_SNAPSHOT_NITRO_VERSION",
+  "snapshot_state_scheme": "REPLACE_WITH_METADATA_HASH_OR_PATH",
+  "required_free_bytes": 0
+}
