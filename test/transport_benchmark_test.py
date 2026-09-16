@@ -160,6 +160,44 @@ class SummaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             BENCH.stamp('2026-09-16T12:00:00')
 
+    def test_rfc3339_fraction_lengths_and_offsets_work_with_legacy_python_parser(self):
+        original_parser = BENCH.dt.datetime.fromisoformat
+        def legacy_parser(value):
+            # Match Python 3.9's accepted fraction lengths even when these tests
+            # run under newer Python with a more permissive fromisoformat.
+            self.assertRegex(value, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{6})?[+-]\d{2}:\d{2}$')
+            return original_parser(value)
+        with patch.object(BENCH.dt, 'datetime', Mock(fromisoformat=Mock(side_effect=legacy_parser))):
+            for length in range(10):
+                fraction = '123456789'[:length]
+                suffix = '.' + fraction if fraction else ''
+                for offset, hour in [('Z', '12'), ('+03:00', '15'), ('-05:00', '07')]:
+                    with self.subTest(length=length, offset=offset):
+                        value = '2026-09-16T' + hour + ':00:00' + suffix + offset
+                        normalized_fraction = '.' + fraction[:6].ljust(6, '0') if fraction else ''
+                        expected = original_parser('2026-09-16T12:00:00' + normalized_fraction + '+00:00').timestamp()
+                        self.assertEqual(BENCH.stamp(value), expected)
+        for invalid in ['2026-09-16T12:00:00.1234567890Z', '2026-09-16T12:00:00.Z',
+                        '2026-09-16T12:00:00.123', '2026-09-16T12:00:00+0300']:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                BENCH.stamp(invalid)
+
+    def test_nanosecond_rust_report_timestamps_keep_common_windows(self):
+        reports, exits = fixtures()
+        for name in ('rust-http', 'rust-ws-library', 'rust-ws-raw'):
+            report = reports[name]
+            for key in ('startedAt', 'finishedAt', 'endedAt'):
+                if key in report:
+                    report[key] = report[key].replace('.000Z', '.000000123Z')
+            if 'connection' in report:
+                report['connection']['openedAt'] = report['connection']['openedAt'].replace('.000Z', '.000000123Z')
+            for sample in report['samples']:
+                if 'at' in sample:
+                    sample['at'] = sample['at'].replace('.000Z', '.000000123Z')
+        summary = BENCH.summarize(reports, exits, PINS)
+        self.assertTrue(summary['allEligible'])
+        self.assertEqual(summary['windows']['http']['seconds'], 600)
+
 
 class RunnerTests(unittest.TestCase):
     def test_missing_and_malformed_reports_are_recorded(self):

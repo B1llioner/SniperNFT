@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -28,9 +29,14 @@ def iso(value):
 def stamp(value):
     if not isinstance(value, str):
         raise ValueError('Invalid timestamp')
-    parsed = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
-    if parsed.tzinfo is None:
-        raise ValueError('Timestamp requires an explicit timezone')
+    parts = re.fullmatch(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})', value)
+    if parts is None:
+        raise ValueError('Timestamp requires RFC3339 with an explicit timezone')
+    seconds, fraction, offset = parts.groups()
+    # Rust emits up to nanoseconds. Python 3.9 fromisoformat accepts only 3 or 6
+    # fraction digits; normalize to microseconds consistently on every Python.
+    fraction = '.' + fraction[:6].ljust(6, '0') if fraction else ''
+    parsed = dt.datetime.fromisoformat(seconds + fraction + ('+00:00' if offset == 'Z' else offset))
     return parsed.timestamp()
 
 
