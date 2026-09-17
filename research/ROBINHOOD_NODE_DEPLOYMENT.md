@@ -1,5 +1,28 @@
 # Dedicated Robinhood mainnet node
 
+## Current status: cancelled and deleted on 2026-09-17
+
+The user cancelled the own-node approach and explicitly requested deletion of
+the node server. EC2 termination was completed and verified through direct AWS
+CLI API calls:
+
+- Node `i-07c02416ef9cc2e6c`: **terminated**, with no attached EBS volumes.
+- Its root EBS volume `vol-0ed90a064bb441e7c`: no longer exists.
+- No allocated Elastic IP was attached to this node before termination.
+- Minter host `i-0ef42c1e5475d7edb`: **running**, original root volume retained.
+- The shared security group and other infrastructure were retained.
+
+The node's instance-store snapshot/database was discarded with termination.
+No pacing proxy was deployed; its unfinished local implementation was archived
+under `.state/robinhood-node-20260916/cancelled-proxy/`. The minter was never
+migrated to this node. Continue using ready Robinhood readers and the official
+Robinhood sequencer sender; do not recreate the own-node infrastructure unless
+the user requests it again. The sections below are historical deployment notes.
+
+Verification: `.state/robinhood-node-20260916/terminate-instance-result.json`,
+`terminate-verification-instances.json`, `terminate-verification-volume.json`,
+and `terminate-elastic-addresses.json` in the same directory.
+
 ## Host and scope
 
 - Created: 2026-09-16 UTC, AWS Ohio `us-east-2c`.
@@ -283,3 +306,104 @@ byte archive and completion marker exist; source parts were removed normally.
 Approximately 4.105 TB remained available. RPC was not ready during extraction,
 which does not establish catch-up or a fully synced node. Evidence:
 `.state/robinhood-node-20260916/cache-startup-result.json`.
+
+### Historical L1 access after extraction
+
+AWS operations for this repair now use a verified AWS CLI v2.36.47 temporary
+sign-in session, authenticated by STS against the intended account. No permanent
+IAM access key was created. The task-local `.state/aws-direct.py` wrapper uses
+an isolated CLI-managed login cache and the official Ohio SSM endpoint
+`https://ssm.us-east-2.api.aws`; the legacy SSM hostname was intermittently
+unreachable from the workstation. Browser/CloudShell availability is no longer
+required for command submission. Authentication still expires with the AWS
+session; instance services run independently of that session. Authentication
+files and cache contents are intentionally excluded from this repository.
+
+At 05:04:18–05:04:28 UTC on 2026-09-17, extraction was complete and the local
+RPC answered with chain ID 4663, but the head stayed at block 60,277,774.
+The reference gap increased from 4,824,372 to 4,824,473 blocks. The Ethereum
+execution endpoint `https://ethereum-rpc.publicnode.com` returned HTTP 403 on
+the historical `eth_getLogs` needed by Nitro, requiring a personal token.
+This blocked L1 inbox reading; it was not a missing Robinhood snapshot or an
+out-of-memory failure. Approximately 3.389 TB remained free. Evidence:
+`.state/robinhood-node-20260916/progress-20260917T050418.json`.
+
+A keyless replacement, `https://rpc.mevblocker.io`, passed a bounded read-only
+preflight from the node EC2 at 05:29:47 UTC. SSM command:
+`f6018035-de23-4572-985b-4d2a7d7c6a13`.
+
+| Historical request | Result |
+| --- | --- |
+| Ethereum chain ID | 1 |
+| Original failing two-block log query | 2 events, 293 ms |
+| 1,000-block log query | 1,131 events, 2.873 s |
+| Full historical block | Expected block hash and batch transaction, 440 ms |
+| Batch transaction receipt | Expected transaction/block and successful status, 340 ms |
+| Beacon blobs for that batch | 3 blobs of 131,072 bytes, 131 ms |
+
+The Beacon endpoint remains `https://ethereum-beacon-api.publicnode.com`.
+The pinned Nitro source uses `/eth/v1/beacon/blobs/{slot}` with repeated
+`versioned_hashes` query parameters. The preflight checked response structure,
+count and lengths; Nitro itself recomputes KZG commitments and checks the hashes
+when ingesting blobs. It does not rely on the legacy `blob_sidecars` endpoint.
+Proof: `.state/robinhood-node-20260916/mev-extended-result.json`.
+
+The installed node was switched to MEV Blocker for **L1 reads only**. These are
+point-in-time availability measurements, not a provider uptime or throughput
+guarantee. The proposed unthrottled MEV Blocker bootstrap default was withdrawn
+after the runtime rate-limit failure below. The existing bootstrap's PublicNode
+default is also unsuitable for this snapshot without historical-access repair;
+do not treat a fresh bootstrap as sync-ready. Repeat sustained historical L1 and
+Beacon checks before future deployments. The minter's transaction sender remains
+the official Robinhood sequencer.
+
+The first switch attempt stopped at its **pre-shutdown parity check** at
+05:33:13 UTC, with `HOST_CONFIG_PARITY_FAILED` (SSM
+`f8aea416-0fec-4650-907b-0ab332a5b9c8`). The running node had not been stopped
+or replaced. A read-only comparison at 05:50:59 UTC found exactly one difference:
+`HostConfig.OomKillDisable` was `null` in the old container and `false` in the
+created candidate (SSM `5ad785af-794a-4ce7-96ef-b3420cc72503`). Evidence:
+`.state/robinhood-node-20260916/l1-switch-result.json` and
+`.state/robinhood-node-20260916/l1-hostconfig-diff.json`.
+
+The revised comparison normalizes only that `null`/`false` representation on
+copied host configs; all other fields still require equality. `true` and other
+types are rejected, including when both containers specify `true`. This retains
+OOM protection: [Docker's implementation defaults an unset value to `false`](https://github.com/moby/moby/blob/v28.2.2/daemon/daemon_unix.go).
+The candidate is reused without starting a second database writer.
+
+The revised one-time switch script passed syntax validation and **13 local mock
+tests**, including both normalization directions, rejection of OOM-disable and
+other config drift, dirty/timeout shutdown, rollback after startup or rename
+failure, and prevention of two concurrent database writers. Its SHA-256 is
+`86b9600d15f9aa3701d4581cb8dd40f60134c9495684ca02bfebb59dd8f1477b`.
+
+The guarded switch then succeeded at **06:03:03 UTC** through SSM command
+`d13536bd-1ff0-403c-86f9-411796d2659e`: `switched_running`,
+`parityPassed=true`, and `oldStoppedCleanly=true`. The old container
+`3a33dd8d3241…` is preserved as
+`vinos-robinhood-node-before-l1-mevblocker-20260917`; the reused candidate
+`a37c04fd3dff…` now has the canonical `vinos-robinhood-node` name. Only
+`parent-chain.connection.url` changed. Data, snapshot, pinned image, mounts,
+memory/cache limits, Beacon endpoint, and transaction forwarding settings were
+retained; the installed bootstrap helper was not replaced by this operation.
+Evidence: `.state/robinhood-node-20260916/l1-switch-direct-result.json`.
+
+This result confirms a running replacement container, **not completed
+synchronization** (`syncCompletionVerified=false`).
+
+A subsequent two-sample check at **06:09:52–06:10:22 UTC** (SSM
+`69497dd7-8575-4b14-bc62-3078aec01525`) found the local head still fixed at
+60,277,774; the reference gap increased from 4,863,447 to 4,863,744 blocks.
+Nitro remained running with zero restarts and `OOMKilled=false`, but MEV Blocker
+returned HTTP 429 / Cloudflare error 1015 on latest/finalized header reads and
+inbox processing. The response requested at least 30 seconds before retrying.
+The initial successful requests therefore did **not** establish that the public
+endpoint could sustain Nitro's request pattern. Sync remained blocked by
+throttling; the RPC switch itself succeeded, but the recovery was not complete.
+Evidence: `.state/robinhood-node-20260916/l1-progress-direct-result.json`.
+
+Before treating this endpoint as a working deployment default, adjust the
+request/retry pattern or select an upstream that supports it, then verify actual
+head movement and convergence. Do not point the minter at this node while it
+remains behind the network.

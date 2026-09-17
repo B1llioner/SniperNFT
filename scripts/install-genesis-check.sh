@@ -24,11 +24,11 @@ ARTIFACT_FILES={'bin/vinos-genesis','build-manifest.json','genesis-check.config.
 CHECK={'name':'genesis-check','configName':'genesis-check.config.json','config':CONFIG,'extraSources':set()}
 PUBLIC={'name':'genesis-mint','configName':'genesis-mint.config.json','config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250,watchRpc='wss://robinhood-rpc.publicnode.com',readConcurrency=4),
  'extraSources':{'docs/GENESIS_MINT_SERVER.md'}}
-PUBLIC_UPGRADE_FROM={'artifactSha256':'b4b8c0805a85df141cf1c9fd69bad4cf563043dc569a38d99a8fa397396a8b58',
- 'launcherSha256':'3d463887eb6239180c69b4154312b7a4d0a2ca63b20397a4f025e6e03f8cec47',
- 'sourceSha256':'7407688c3d58c7e5713a717900043e26d995e9d5a10e021689c1bb5657d823ec',
- 'binarySha256':'cabecdd385b4f29cf3a8cdca1af8096db17d8efb5594938641d2eed1638b0e86',
- 'config':dict(CONFIG,quantity=10,minQuantity=1,mode='public',waitTimeoutSecs=172800,pollIntervalMs=250,watchRpc='wss://robinhood-rpc.publicnode.com')}
+PUBLIC_UPGRADE_FROM={'artifactSha256':'d6a907bfd6b8e8838d0a85bef8ed465ce7578a6c510e8bbd038e2aa5eac262b7',
+ 'launcherSha256':'70a3aff3453a239269d3d79f29b345e91b0f61ba1bb16c2065ce9018cc86a44d',
+ 'sourceSha256':'d844c0f38e61ec5f7fca08695fabf62ee3f20bcaf5d04918c715009a4faf5b4a',
+ 'binarySha256':'6d7862ab815a955d9f566da3ebfa2ce67c868957d8b032e8f5cddeae98ffa59c',
+ 'config':dict(PUBLIC['config'])}
 def artifact_files(profile): return {'bin/vinos-genesis','build-manifest.json',profile['configName']}
 UPGRADE_FROM={'artifactSha256':'bb84ce6e87907c54c7a75f4911247f3c3a720aec853454e7b38633d48fe22484',
  'launcherSha256':'1a6c6fe0fa821b8a0506564447cf7d42cebdc9e81afb6db083df12424162cce0'}
@@ -130,10 +130,11 @@ def public_activation_allowed():
  if socket.exists() or socket.is_symlink():
   i=socket.lstat();need(stat.S_ISSOCK(i.st_mode) and i.st_uid==user.pw_uid,'Unsafe public tmux socket')
   result=subprocess.run(['/usr/sbin/runuser','-u','ssm-user','--','env','-i','PATH=/usr/bin:/bin',
-   '/usr/bin/tmux','-S',str(socket),'-f','/dev/null','list-panes','-s','-t','genesis-mint','-F','#{pane_dead}'],
+   '/usr/bin/tmux','-S',str(socket),'-f','/dev/null','list-panes','-a','-F','#{pane_dead}'],
    stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=10)
   if result.returncode!=0: return False,'tmux_status_unknown'
-  if result.stdout.strip()!='1': return False,'live_or_multiple_panes'
+  panes=result.stdout.splitlines()
+  if not panes or any(pane!='1' for pane in panes): return False,'live_or_unknown_panes'
  return True,None
 def guard_public_publication():
  if upgrade_from is None or before[2]==new_launcher_sha: return
@@ -150,45 +151,74 @@ def public_launcher(destination):
 set -euo pipefail
 umask 077
 ulimit -c 0
-usage() { echo 'Usage: vinos-genesis-mint [setup|start|preflight|recover] [1..100] | attach | reset' >&2; exit 2; }
-[ "$#" -le 2 ] || usage
+usage() { echo 'Usage: vinos-genesis-mint [setup|start] [1..100] | preflight ADDRESS [1..100] | recover ADDRESS | list | attach [SESSION] | reset [SESSION]' >&2; exit 2; }
+[ "$#" -le 3 ] || usage
 action=${1:-setup}
-quantity=${2:-10}
+quantity=10
+wallet=
+session=
 if [[ "$action" =~ ^([1-9]|[1-9][0-9]|100)$ ]]; then
  [ "$#" -eq 1 ] || usage
  quantity=$action
  action=setup
 fi
-case "$action" in setup|start|preflight|recover) ;; attach|reset) [ "$#" -eq 1 ] || usage ;; *) usage ;; esac
+case "$action" in
+ setup|start) [ "$#" -le 2 ] || usage; quantity=${2:-$quantity} ;;
+ preflight) [ "$#" -ge 2 ] || usage; wallet=$2; quantity=${3:-10} ;;
+ recover) [ "$#" -eq 2 ] || usage; wallet=$2 ;;
+ attach|reset) [ "$#" -le 2 ] || usage; session=${2:-} ;;
+ list) [ "$#" -eq 1 ] || usage ;;
+ *) usage ;;
+esac
 [[ "$quantity" =~ ^([1-9]|[1-9][0-9]|100)$ ]] || usage
+if [[ "$action" == preflight || "$action" == recover ]]; then [[ "$wallet" =~ ^0x[0-9a-fA-F]{40}$ ]] || usage; fi
+if [ -n "$session" ]; then [[ "$session" =~ ^genesis-mint(-[0-9]+-[0-9]+)?$ ]] || usage; fi
 if [ "$(id -un)" != ssm-user ]; then echo 'Run as ssm-user in an interactive SSM session' >&2; exit 1; fi
 if [ ! -t 0 ] || [ ! -t 1 ]; then echo 'An interactive terminal is required; enter the key only at the hidden prompt' >&2; exit 1; fi
 if [ -L /var/lib/vinos-genesis ] || [ "$(stat -c '%a:%U' /var/lib/vinos-genesis)" != '700:ssm-user' ]; then echo 'Unsafe state directory' >&2; exit 1; fi
 clean=(env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 TERM=xterm-256color)
 mux=("${clean[@]}" /usr/bin/tmux -S /var/lib/vinos-genesis/public-mint.tmux -f /dev/null)
+select_session() {
+ if [ -n "$session" ]; then return; fi
+ local names name
+ local found=()
+ names=$("${mux[@]}" list-sessions -F '#{session_name}') || { echo 'No mint sessions. Start with vinos-genesis-mint setup 10.' >&2; exit 1; }
+ while IFS= read -r name; do
+  if [[ "$name" =~ ^genesis-mint(-[0-9]+-[0-9]+)?$ ]]; then found+=("$name"); fi
+ done <<< "$names"
+ if [ "${#found[@]}" -ne 1 ]; then
+  echo 'Specify a session from vinos-genesis-mint list.' >&2
+  printf '%s\\n' "${found[@]}" >&2
+  exit 2
+ fi
+ session=${found[0]}
+}
 case "$action" in
  preflight|recover)
-  exec "${clean[@]}" '''+binary+''' "$action" --quantity "$quantity" --config '''+config+''' --state-dir /var/lib/vinos-genesis ;;
+  exec "${clean[@]}" '''+binary+''' "$action" --wallet "$wallet" --quantity "$quantity" --config '''+config+''' --state-dir /var/lib/vinos-genesis ;;
+ list)
+  exec "${mux[@]}" list-sessions -F '#{session_name} (#{session_windows} window)' ;;
  attach)
-  exec "${mux[@]}" attach-session -t genesis-mint ;;
+  select_session
+  exec "${mux[@]}" attach-session -t "=$session" ;;
  reset)
-  panes=$("${mux[@]}" list-panes -s -t genesis-mint -F '#{pane_dead}') || exit 1
+  select_session
+  panes=$("${mux[@]}" list-panes -s -t "=$session:" -F '#{pane_dead}') || exit 1
   if [ "$panes" != '1' ]; then echo 'Refusing reset: the mint process is running or the session has multiple panes' >&2; exit 1; fi
   # Recheck inside the tmux command queue: a concurrent reset/start must not kill a new live process.
-  "${mux[@]}" if-shell -F -t genesis-mint '#{&&:#{==:#{session_windows},1},#{&&:#{==:#{window_panes},1},#{pane_dead}}}' 'kill-session -t genesis-mint' 'display-message -p "Refusing reset: session changed and is no longer a single finished pane"'
+  "${mux[@]}" if-shell -F -t "=$session:" '#{&&:#{==:#{session_windows},1},#{&&:#{==:#{window_panes},1},#{pane_dead}}}' "kill-session -t =$session" 'display-message -p "Refusing reset: session changed and is no longer a single finished pane"'
   echo 'Reset request completed. No new mint was started.'
   exit 0 ;;
 esac
-if "${mux[@]}" has-session -t genesis-mint 2>/dev/null; then
- echo 'Attaching to the existing mint session; action and quantity from this invocation are not applied.'
-else
- echo "Starting public $action: up to $quantity NFT; minimum 1; maximum wait 48 hours."
-fi
-echo 'Detach with Ctrl+B, then D. Reconnect with vinos-genesis-mint attach.'
-echo 'A finished pane stays visible; use vinos-genesis-mint reset before an intentional new run. No automatic restart.'
-# Both interpolated values were strictly allowlisted above. The key is read by Rust inside tmux.
-job="/usr/bin/tmux -S /var/lib/vinos-genesis/public-mint.tmux set-option -w -t genesis-mint remain-on-exit on && exec env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 '''+binary+''' $action --send --quantity $quantity --config '''+config+''' --state-dir /var/lib/vinos-genesis"
-exec "${mux[@]}" new-session -A -s genesis-mint "$job"
+session="genesis-mint-$(date +%s)-$$"
+echo "Starting public $action: up to $quantity NFT; minimum 1; maximum wait 48 hours."
+echo 'Enter the private key of the desired wallet at the hidden prompt. Each wallet keeps separate state.'
+echo "Session: $session. Detach with Ctrl+B, then D. Reconnect: vinos-genesis-mint attach $session"
+echo 'A finished pane stays visible. No automatic restart. The same wallet cannot run twice concurrently.'
+# All interpolated arguments are allowlisted; a key is read once by Rust inside its own tmux session.
+# Window/pane targets need the trailing colon; attach/kill-session use an exact session target.
+job="/usr/bin/tmux -S /var/lib/vinos-genesis/public-mint.tmux set-option -w -t =$session: remain-on-exit on && exec env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 '''+binary+''' $action --send --wallet-from-key --quantity $quantity --config '''+config+''' --state-dir /var/lib/vinos-genesis"
+exec "${mux[@]}" new-session -s "$session" "$job"
 '''
 def launcher(destination,profile=CHECK):
  if profile is PUBLIC: return public_launcher(destination)

@@ -170,7 +170,7 @@ print('8 generated public install scenarios checked; checker/state untouched')
 `);
 });
 
-test('Public launcher validates inputs, sends only setup/start, reattaches existing tmux and never resets a live process', () => {
+test('Public launcher starts isolated wallet sessions, validates read-only selection and never resets a live process', () => {
   python(String.raw`
 import errno,json,os,pathlib,pty,select,subprocess,sys,tempfile,time
 source=pathlib.Path(sys.argv[1]).read_text().split("<<'VINOS_INSTALLER'\n",1)[1].rsplit('\nVINOS_INSTALLER',1)[0]
@@ -182,9 +182,10 @@ log=pathlib.Path('''+repr(str(log))+''');scenario=pathlib.Path('''+repr(str(scen
 args=sys.argv[1:];args=args[4:] if args[2:3]==['-f'] else args[2:]
 with log.open('a') as f:f.write(json.dumps({'tmux':args,'env':dict(os.environ)})+'\\n')
 action=args[0]
-if action=='has-session':sys.exit(0 if scenario in ('existing','dead','live') else 1)
+if action=='list-sessions':print('genesis-mint-123-10\\ngenesis-mint-123-11' if scenario=='two-sessions' else 'genesis-mint')
+if action in ('set-option','list-panes','if-shell') and '-t' in args:assert args[args.index('-t')+1].startswith('=') and args[args.index('-t')+1].endswith(':'),'tmux window/pane target needs exact session and colon'
 if action=='list-panes':print('1' if scenario=='dead' else '0')
-if action=='new-session' and scenario not in ('existing','dead','live'):sys.exit(subprocess.run(args[-1],shell=True).returncode)
+if action=='new-session':sys.exit(subprocess.run(args[-1],shell=True).returncode)
 ''');stub.chmod(0o755)
  binary.write_text('#!/usr/bin/python3\nimport json,os,pathlib,sys\nwith pathlib.Path('+repr(str(log))+').open("a") as f:f.write(json.dumps({"binary":sys.argv[1:],"env":dict(os.environ)})+"\\n")\n');binary.chmod(0o755)
  wrapper=ns['public_launcher'](str(root))
@@ -216,19 +217,32 @@ if action=='new-session' and scenario not in ('existing','dead','live'):sys.exit
   calls=[json.loads(line) for line in log.read_text().splitlines()]
   assert all('SYNTHETIC_PRIVATE_KEY' not in c['env'] for c in calls)
   return code,output.decode(),calls
- for args,action,qty in (([],'setup','10'),(['1'],'setup','1'),(['setup','100'],'setup','100'),(['start','7'],'start','7'),(['preflight','4'],'preflight','4'),(['recover'],'recover','10')):
+ for args,action,qty in (([],'setup','10'),(['1'],'setup','1'),(['setup','100'],'setup','100'),(['start','7'],'start','7'),(['preflight','0x'+'1'*40,'4'],'preflight','4'),(['recover','0x'+'2'*40],'recover','10')):
   code,out,calls=invoke(args);assert code==0,(args,out)
   transactions=[c['binary'] for c in calls if 'binary' in c];assert len(transactions)==1,(args,calls)
   command=transactions[0];assert command[0]==action and command[command.index('--quantity')+1]==qty
   assert ('--send' in command)==(action in ('setup','start'))
+  assert ('--wallet-from-key' in command)==(action in ('setup','start'))
+  if action in ('preflight','recover'): assert command[command.index('--wallet')+1]==args[1]
   assert '--state-dir' in command and command[-1]=='/var/lib/vinos-genesis'
   if action in ('setup','start'):assert any(c.get('tmux',[''])[0]=='set-option' and 'remain-on-exit' in c['tmux'] for c in calls)
- for args in (['0'],['101'],['01'],['setup','0'],['setup','101'],['setup','1;echo bad'],['setup','1','EXTRA'],['attach','2'],['reset','2'],['--private-key','SYNTHETIC_SECRET']):
+ for args in (['0'],['101'],['01'],['setup','0'],['setup','101'],['setup','1;echo bad'],['setup','1','EXTRA'],['attach','2'],['reset','2'],['preflight'],['recover'],['preflight','0xNO'],['preflight','0x'+'1'*40,'101'],['recover','0x'+'1'*40,'2'],['attach','genesis-mint;echo bad'],['list','2'],['--private-key','SYNTHETIC_SECRET']):
   code,out,calls=invoke(args);assert code==2 and not calls,(args,out,calls);assert 'SYNTHETIC_SECRET' not in out
- code,out,calls=invoke(['setup','20'],'existing');assert code==0 and 'not applied' in out and not any('binary' in c for c in calls)
- assert any(c.get('tmux',[''])[0]=='new-session' and '-A' in c['tmux'] for c in calls)
+ sessions=[]
+ for _ in range(2):
+  code,out,calls=invoke(['setup','20'],'existing');assert code==0 and any('binary' in c for c in calls),(out,calls)
+  command=next(c['tmux'] for c in calls if c.get('tmux',[''])[0]=='new-session')
+  assert '-A' not in command and command[command.index('-s')+1].startswith('genesis-mint-')
+  sessions.append(command[command.index('-s')+1])
+ assert sessions[0]!=sessions[1],sessions
+ for action in ('attach','reset'):
+  code,out,calls=invoke([action],'two-sessions');assert code==2 and 'Specify a session' in out
+  assert not any(c.get('tmux',[''])[0] in ('if-shell','attach-session') for c in calls)
+ code,out,calls=invoke(['attach','genesis-mint-123-11'],'two-sessions');assert code==0
+ assert any(c.get('tmux')==['attach-session','-t','=genesis-mint-123-11'] for c in calls)
+ code,out,calls=invoke(['list'],'two-sessions');assert code==0 and 'genesis-mint-123-10' in out
  code,out,calls=invoke(['reset'],'live');assert code==1 and not any(c.get('tmux',[''])[0]=='kill-session' for c in calls)
- code,out,calls=invoke(['reset'],'dead');assert code==0 and any(c.get('tmux',[''])[0]=='if-shell' and '-F' in c['tmux'] and '#{pane_dead}' in c['tmux'][4] and c['tmux'][5]=='kill-session -t genesis-mint' for c in calls)
+ code,out,calls=invoke(['reset'],'dead');assert code==0 and any(c.get('tmux',[''])[0]=='if-shell' and '-F' in c['tmux'] and '#{pane_dead}' in c['tmux'][4] and c['tmux'][5]=='kill-session -t =genesis-mint' for c in calls)
  code,out,calls=invoke(['attach'],'existing');assert code==0 and any(c.get('tmux',[''])[0]=='attach-session' for c in calls) and not any('binary' in c for c in calls)
  code,out,calls=invoke([],terminal=False);assert code==1 and 'interactive terminal' in out
 print('Generated Bash launcher executed in PTY with synthetic binary/tmux only')
@@ -241,14 +255,14 @@ import contextlib,io,json,os,pathlib,pwd,socket,stat,subprocess,sys,tempfile,typ
 source=pathlib.Path(sys.argv[1]).read_text().split("<<'VINOS_INSTALLER'\n",1)[1].rsplit('\nVINOS_INSTALLER',1)[0]
 ns={};exec(source.rsplit('\ntry: main',1)[0],ns);profile=ns['PUBLIC']
 reviewed=ns['PUBLIC_UPGRADE_FROM'];old_sha=reviewed['artifactSha256'];new_sha='a'*64;new_source='b'*64
-assert old_sha=='b4b8c0805a85df141cf1c9fd69bad4cf563043dc569a38d99a8fa397396a8b58'
-assert reviewed['sourceSha256']=='7407688c3d58c7e5713a717900043e26d995e9d5a10e021689c1bb5657d823ec'
-assert reviewed['binarySha256']=='cabecdd385b4f29cf3a8cdca1af8096db17d8efb5594938641d2eed1638b0e86'
-assert reviewed['launcherSha256']=='3d463887eb6239180c69b4154312b7a4d0a2ca63b20397a4f025e6e03f8cec47'
+assert old_sha=='d6a907bfd6b8e8838d0a85bef8ed465ce7578a6c510e8bbd038e2aa5eac262b7'
+assert reviewed['sourceSha256']=='d844c0f38e61ec5f7fca08695fabf62ee3f20bcaf5d04918c715009a4faf5b4a'
+assert reviewed['binarySha256']=='6d7862ab815a955d9f566da3ebfa2ce67c868957d8b032e8f5cddeae98ffa59c'
+assert reviewed['launcherSha256']=='70a3aff3453a239269d3d79f29b345e91b0f61ba1bb16c2065ce9018cc86a44d'
 assert reviewed['config']['pollIntervalMs']==250
 assert reviewed['config']['watchRpc']=='wss://robinhood-rpc.publicnode.com'
-assert 'readConcurrency' not in reviewed['config'] and profile['config']['readConcurrency']==4
-old_wrapper=ns['public_launcher']('/opt/vinos-genesis/'+old_sha).encode()
+assert reviewed['config']['readConcurrency']==4 and profile['config']['readConcurrency']==4
+old_wrapper=(pathlib.Path(sys.argv[1]).parent.parent/'test/fixtures/genesis-mint-kit05-launcher.sh').read_bytes()
 assert ns['digest'](old_wrapper)==reviewed['launcherSha256']
 new_wrapper=ns['public_launcher']('/opt/vinos-genesis/'+new_sha).encode()
 binary=b'synthetic immutable binary';binary_sha=ns['digest'](binary)
@@ -284,7 +298,7 @@ for case in cases:
   if case=='old-watch-changed':
    p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value.pop('watchRpc');p.write_text(json.dumps(value))
   if case=='old-concurrency-changed':
-   p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['readConcurrency']=4;p.write_text(json.dumps(value))
+   p=base/old_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['readConcurrency']=1;p.write_text(json.dumps(value))
   if case=='new-concurrency-changed':
    p=base/new_sha/'genesis-mint.config.json';value=json.loads(p.read_text());value['readConcurrency']=1;p.write_text(json.dumps(value))
   if case=='launcher-changed':cmd.write_bytes(b'unknown launcher')
@@ -340,14 +354,14 @@ for case in cases:
     except OSError:pass
   for p,(data,mtime) in protected.items():assert p.read_bytes()==data and p.stat().st_mtime_ns==mtime,(case,p)
   assert stat.S_IMODE(state.stat().st_mode)==0o700
-  if case in ('idle','already-new','dead-pane'):
+  if case in ('idle','already-new','dead-pane','multiple-panes'):
    assert error is None,(case,error)
    assert cmd.read_bytes()==new_wrapper and stat.S_IMODE(cmd.stat().st_mode)==0o755
    report=json.loads(output.getvalue());assert report['installed'] and report['upgradedFrom']==old_sha
   else:
    assert error is not None,case
    assert cmd.read_bytes()==initial,case
-   if case in ('active-process','active-pane','unknown-tmux','multiple-panes','late-process'):
+   if case in ('active-process','active-pane','unknown-tmux','late-process'):
     report=json.loads(output.getvalue());assert report['staged'] and not report['installed'] and not report['launcherChanged']
   assert not any('capture-pane' in c or 'kill-session' in c or 'kill-server' in c for c in calls)
 print('17 pinned public upgrade cases: old state/checker/config preserved, active/late processes never stopped')

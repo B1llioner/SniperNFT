@@ -1285,6 +1285,77 @@ test('Rust CLI public quantity override one mints directly without a factory or 
   assert.equal(c.finalSimulations.length, 1); noOpenSea(c);
 });
 
+test('Rust CLI public wallet-from-key setup selects its own registry, reuses its factory, and supports keyless wallet reads',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const placeholder = '0x1111111111111111111111111111111111111111';
+    const c = await fixture(t, { mode: 'public', quantity: 2, wallet: placeholder });
+    assert.notEqual(placeholder.toLowerCase(), WALLET.toLowerCase());
+    const first = await run(c, 'setup', {}, ['--wallet-from-key']); success(first);
+    assert.equal(first.privateKeyProvided, true);
+    const saved = await state(c);
+    assert.equal(saved.identity.owner.toLowerCase(), WALLET.toLowerCase());
+    assert.equal(saved.identity.recipient.toLowerCase(), WALLET.toLowerCase());
+    assert.equal(saved.pending, null); assert.ok(saved.gas_cost_wei > 0);
+    const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    assert.equal(await factory.owner(), WALLET); assert.equal(await factory.recipient(), WALLET);
+    assert.equal(await factory.childCount(), 2n);
+    assert.equal(await c.nft.balanceOf(WALLET), 2n);
+    assert.equal(await c.nft.balanceOf(placeholder), 0n);
+    assert.equal(c.submissions.length, 3, 'The selected wallet deploys, prepares, and mints.');
+    assert.ok(first.events.some(event => event.event === 'preflight'
+      && event.wallet.toLowerCase() === WALLET.toLowerCase()));
+    await assert.rejects(access(join(c.stateRoot, `4663-${placeholder}`)), { code: 'ENOENT' });
+
+    const repeated = await run(c, 'setup', {}, ['--wallet-from-key']); success(repeated);
+    const reused = await state(c);
+    assert.equal(reused.factory, saved.factory);
+    assert.ok(reused.gas_cost_wei > saved.gas_cost_wei, 'The existing wallet budget history must survive reuse.');
+    assert.equal(c.submissions.length, 5, 'Reuse only prepares two new children and submits their mint.');
+    assert.equal(c.submissions.filter(tx => tx.to === null).length, 1);
+    assert.equal(await factory.childCount(), 4n);
+    assert.equal(await c.nft.balanceOf(WALLET), 4n);
+    for (let id = 1; id <= 4; ++id) assert.equal(await c.nft.ownerOf(id), WALLET);
+
+    const beforeReads = await readFile(c.statePath, 'utf8');
+    for (const action of ['preflight', 'recover']) {
+      const result = await run(c, action, {}, ['--wallet', WALLET], { provideSecrets: false }); success(result);
+      assert.equal(result.privateKeyProvided, false);
+      assert.equal(c.submissions.length, 5, 'Read-only wallet selection must not broadcast.');
+      assert.equal(await readFile(c.statePath, 'utf8'), beforeReads,
+        'Read-only wallet selection must retain the same identity, factory, and gas history.');
+    }
+    for (const path of [c.statePath, join(c.stateRoot, `4663-${WALLET}`, 'events.jsonl')]) {
+      const persisted = await readFile(path, 'utf8');
+      assert.ok(!persisted.includes(KEY) && !persisted.includes(API_KEY));
+    }
+    noOpenSea(c);
+  });
+
+test('Rust CLI public wallet-from-key preserves an explicit recipient and rejects changing an existing factory identity',
+  { timeout: 60_000 }, async t => {
+    if (!await available(t)) return;
+    const placeholder = '0x1111111111111111111111111111111111111111';
+    const recipient = '0x2222222222222222222222222222222222222222';
+    const c = await fixture(t, { mode: 'public', quantity: 2, wallet: placeholder, recipient });
+    success(await run(c, 'setup', {}, ['--wallet-from-key']));
+    const saved = await state(c);
+    assert.equal(saved.identity.owner.toLowerCase(), WALLET.toLowerCase());
+    assert.equal(saved.identity.recipient.toLowerCase(), recipient.toLowerCase());
+    const factory = new Contract(saved.factory, ARTIFACT.contracts.GenesisChildFactory.abi, c.provider);
+    assert.equal(await factory.owner(), WALLET); assert.equal(await factory.recipient(), recipient);
+    assert.equal(await c.nft.balanceOf(WALLET), 0n);
+    assert.equal(await c.nft.balanceOf(recipient), 2n);
+    for (let id = 1; id <= 2; ++id) assert.equal(await c.nft.ownerOf(id), recipient);
+    const beforeRejectedChange = await readFile(c.statePath, 'utf8');
+    const rejected = await run(c, 'setup', { recipient: WALLET }, ['--wallet-from-key']);
+    assert.notEqual(rejected.code, 0); assert.match(rejected.stderr, /STATE_IDENTITY_MISMATCH/);
+    assert.equal(c.submissions.length, 3, 'Changing the recipient must not submit or deploy another factory.');
+    assert.equal(await readFile(c.statePath, 'utf8'), beforeRejectedChange);
+    success(await run(c, 'preflight', {}, ['--wallet', WALLET], { provideSecrets: false }));
+    assert.equal(c.submissions.length, 3); noOpenSea(c);
+  });
+
 for (const [secondsUntilStart, expectedPollMs] of [[31, 1000], [30, 250]]) {
   test(`Rust CLI public wait uses ${expectedPollMs} ms polling at the ${secondsUntilStart}-second opening boundary`,
     { timeout: 60_000 }, async t => {
