@@ -55,6 +55,14 @@ SNAPSHOT_PARTS = (
     {"name": "full-path.tar.part0001", "size": 250113525760,
      "sha256": "3838e48a0a5edb69584fb6aa27dbfa8f0deab0c44eb6d63e776e0e0bb340174d"},
 )
+# Dedicated 64+ GiB host. DatabaseCache applies separately to l2chaindata and
+# wasm (up to 16 GiB combined), plus 4 GiB clean trie cache. Keep the existing
+# 42 GiB Go soft limit / 52 GiB container limit on 64 GiB hosts. Prefetch and
+# Pebble concurrency remain Nitro defaults, confirmed on the pinned binary.
+NODE_CACHE_FLAGS = (
+    "--execution.caching.database-cache=8192",
+    "--execution.caching.trie-clean-cache=4096",
+)
 
 
 class Refused(RuntimeError):
@@ -746,6 +754,7 @@ TimeoutStartSec=120
               "--node.feed.input.url=wss://feed.mainnet.chain.robinhood.com",
               "--execution.forwarding-target=null", "--node.staker.enable=false",
               "--execution.caching.state-scheme=" + spec["snapshot_state_scheme"],
+              *NODE_CACHE_FLAGS,
               "--init.url=file:/home/user/snapshot/full-path.tar", "--init.validate-checksum=true",
               "--http.addr=0.0.0.0", "--http.port=8547", "--http.api=net,web3,eth", "--http.vhosts=localhost,127.0.0.1",
               "--ws.addr=0.0.0.0", "--ws.port=8548", "--ws.api=net,web3,eth",
