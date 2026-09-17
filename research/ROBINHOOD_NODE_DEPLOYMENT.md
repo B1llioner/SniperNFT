@@ -179,3 +179,61 @@ confirmed `resumeBytes=170310893568`, with the same partial inode. Between
 Free space was approximately 4.784 TB. This confirms resumed transfer, not
 sustained reliability or completed node sync. Evidence is saved in
 `.state/robinhood-node-20260916/http1-resume-result.json`.
+
+### Parallel range downloader: 2026-09-17
+
+The subsequent HTTP/1.1 transfer also exhausted its three attempts: curl error
+18 indicated a truncated response. It stopped at 00:33:48 UTC. A fresh check at
+03:15:56 UTC confirmed the preserved first part at 388,536,532,992 bytes (49.37%
+of the full snapshot), with Nitro inactive and no import started. The file inode
+was 1073741954; approximately 4.574 TB remained available. Evidence:
+`.state/robinhood-node-20260916/progress-20260917T0315.json`.
+
+The new bootstrap uses eight concurrent requests, each at most 256 MiB. This
+limits dependence on one uninterrupted multi-hour response. Exact HTTP range
+responses are staged separately, synchronized, and appended to the existing
+contiguous prefix. Successfully downloaded ranges survive retries. Three
+successive failed waves stop the stage. The pinned whole-part hashes and final
+archive checks remain required. `download_part` is retained for compatibility;
+the production `prepare_snapshot` default is `download_part_parallel`.
+
+Earlier bounded probes on the same EC2 measured approximately 100 MB/s with one
+connection versus 458 MB/s combined with five connections. Those probes discarded
+test bytes and lasted only a few seconds. They justify testing parallelism but
+do not establish the sustained useful download rate.
+
+Candidate helper SHA-256:
+`9676ca928ee1114ec2122aca127cbb0414cf6b7b715e2a2dc2e155a9a3931b3b`.
+All 29 local tests passed. The review and recovery invariants are documented in
+`ROBINHOOD_PARALLEL_DOWNLOAD_REVIEW.md`. Before switching the installed helper,
+the deployment must pass a real bounded range canary, acquire `download.lock`,
+check the stopped services and old helper hash, preserve the partial file, and
+atomically replace the helper. Provisioning and disk formatting must not rerun.
+
+The guarded switch completed successfully through SSM command
+`6c0141de-e7cd-4ba5-bec1-a1680199df97`. Before switching, all 29 tests passed on
+the EC2 host and the candidate fetched an exact real 1 MiB range successfully
+(SSM `5eb7ed41-0ef0-4938-a353-35591e640917`). The initial staging package omitted
+the public example-spec fixture required by one negative test; adding that
+fixture fixed the packaging check without changing the reviewed source.
+
+The installed helper matches the candidate hash above. The existing part retained
+inode 1073741954 and its initial/final 1 MiB sample hashes across replacement.
+Its recorded resume offset was exactly 388,536,532,992 bytes. No provisioning,
+formatting, or minter changes occurred.
+
+| Observation (2026-09-17 UTC) | Contiguous part bytes |
+| --- | ---: |
+| 03:27:21.736 | 388,536,532,992 |
+| 03:27:41.852 | 394,978,983,936 |
+| 03:28:01.952 | 401,421,434,880 |
+
+Useful part-file growth averaged **320.40 MB/s** over 40.215 seconds, approximately
+3.2 times the prior 99.6 MB/s baseline. This includes appending and syncing the
+downloaded ranges, rather than counting discarded probe bytes. Eight curl
+processes were observed; all first six waves reported zero consecutive failed
+waves. At the last observation the snapshot was 51.01% downloaded and 4.559 TB
+remained free. systemd queued Nitro job 35926 behind running snapshot job 35927.
+The snapshot is still incomplete; these observations do not establish long-term
+stability or completed node synchronization. Full proof:
+`.state/robinhood-node-20260916/parallel-upgrade-result.json`.
