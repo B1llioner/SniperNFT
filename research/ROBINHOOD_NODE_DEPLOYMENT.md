@@ -237,3 +237,49 @@ remained free. systemd queued Nitro job 35926 behind running snapshot job 35927.
 The snapshot is still incomplete; these observations do not establish long-term
 stability or completed node synchronization. Full proof:
 `.state/robinhood-node-20260916/parallel-upgrade-result.json`.
+
+### Archive completion and Nitro cache profile
+
+At 04:02:41–04:02:51 UTC on 2026-09-17, joining advanced from 240.384 GB to
+250.408 GB at approximately 1000.8 MB/s. The RAID simultaneously read and wrote
+about 1 GB/s; Python used about 68% of one CPU, while aggregate CPU idle was
+76.75% and I/O wait 16.07%. Restarting the almost-completed join to introduce a
+new algorithm was not justified. The existing verified join continued intact.
+See `.state/robinhood-node-20260916/assembly-profile-summary.json`.
+
+The actual pinned Nitro binary confirmed that next-block prefetch was already
+enabled and the Pebble compaction concurrency limit was already eight. No
+experimental parallel execution or validation-skipping flags were added.
+
+The cache profile was verified against the installed binary with isolated
+`--help`, then applied through SSM command
+`9a49eda4-12ef-448b-8588-f62a44272f9a` at 04:13:55 UTC:
+
+- `--execution.caching.database-cache=8192` (previous default 2048 MiB).
+- `--execution.caching.trie-clean-cache=4096` (previous default 600 MiB).
+
+Database cache capacity applies separately to execution and wasm databases.
+The existing 42 GiB Go soft memory limit and 52 GiB container memory/swap limits
+were retained. The complete container config, host config, mounts, and network
+names passed parity checks, allowing only the two new flags and generated
+hostname to differ. The old, never-started container was preserved as
+`vinos-robinhood-node-before-cache-20260917`; the new container keeps the canonical
+`vinos-robinhood-node` name. The download helper was not replaced during joining.
+The versioned bootstrap now includes these cache settings for future installs.
+
+Only the queued node start was briefly held during replacement. The snapshot
+process continued with the same PID and completed successfully. At the recorded
+replacement result, snapshot service was `active/exited`, `Result=success`, and
+node start job 42640 was running. Import and completed sync require subsequent
+runtime verification. No synchronization speedup has yet been measured.
+Review: `ROBINHOOD_SYNC_TUNING_REVIEW.md`.
+
+Runtime startup was verified at 04:14:57 UTC (SSM
+`987e3d34-0c1b-4e57-8699-c5202d27ead1`): node service `active/running`, zero
+restarts, Docker running, and `OOMKilled=false`. Logs showed
+`extracting downloaded init archive` from 04:13:56 UTC, Nitro v3.11.4,
+GOMAXPROCS 8, and an L1 connection with chain ID 1. The complete 786,984,437,760
+byte archive and completion marker exist; source parts were removed normally.
+Approximately 4.105 TB remained available. RPC was not ready during extraction,
+which does not establish catch-up or a fully synced node. Evidence:
+`.state/robinhood-node-20260916/cache-startup-result.json`.
