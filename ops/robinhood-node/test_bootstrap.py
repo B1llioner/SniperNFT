@@ -7,6 +7,7 @@ import stat
 import hashlib
 import json
 import subprocess
+import threading
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
@@ -320,6 +321,187 @@ class SnapshotStaging(unittest.TestCase):
             source.chmod(0o666)
             with self.assertRaisesRegex(B.Refused, "UNTRUSTED"):
                 B.snapshot_file(source)
+
+
+class ParallelSnapshot(unittest.TestCase):
+    body = bytes(range(128))
+
+    def part(self):
+        return {"name": "full-path.tar.part0000", "size": len(self.body),
+                "sha256": hashlib.sha256(self.body).hexdigest()}
+
+    def curl(self, argv, **kwargs):
+        self.assertIn("--http1.1", argv)
+        self.assertNotIn("--location", argv)
+        self.assertEqual(argv[argv.index("--proto") + 1], "=https")
+        start, end = map(int, argv[argv.index("--range") + 1].split("-"))
+        Path(argv[argv.index("--output") + 1]).write_bytes(self.body[start:end + 1])
+        Path(argv[argv.index("--dump-header") + 1]).write_text(
+            f"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{len(self.body)}\r\n\r\n")
+        return SimpleNamespace(returncode=0, stdout=b"206", stderr=b"")
+
+    def test_parallel_ranges_overlap_in_time_and_preserve_existing_prefix_inode(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(B, "RANGE_BYTES", 32):
+            directory = Path(temporary)
+            path = directory / self.part()["name"]
+            path.write_bytes(self.body[:7])
+            inode = path.stat().st_ino
+            barrier = threading.Barrier(4, timeout=5)
+
+            def concurrent_curl(argv, **kwargs):
+                self.assertEqual(path.read_bytes(), self.body[:7])
+                barrier.wait()
+                return self.curl(argv, **kwargs)
+
+            with patch.object(B.subprocess, "run", side_effect=concurrent_curl) as curl:
+                B.download_part_parallel(directory, self.part(), workers=4)
+            self.assertEqual(curl.call_count, 4)
+            self.assertEqual(path.stat().st_ino, inode)
+            self.assertEqual(path.read_bytes(), self.body)
+            self.assertEqual(list(directory.iterdir()), [path])
+
+    def test_restart_recovers_mid_append_and_out_of_order_ready_ranges(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(B, "RANGE_BYTES", 32):
+            directory = Path(temporary)
+            part = self.part()
+            path = directory / part["name"]
+            path.write_bytes(self.body[:19])  # crash while appending ready 7..38
+            scratch = B.range_directory(directory, part)
+            (scratch / "7-38.ready").write_bytes(self.body[7:39])
+            (scratch / "71-102.ready").write_bytes(self.body[71:103])
+            (scratch / "39-70.pending").write_bytes(b"interrupted")
+            with patch.object(B.subprocess, "run", side_effect=self.curl) as curl:
+                B.download_part_parallel(directory, part, workers=4)
+            ranges = {call.args[0][call.args[0].index("--range") + 1] for call in curl.call_args_list}
+            self.assertEqual(ranges, {"39-70", "103-127"})
+            self.assertEqual(path.read_bytes(), self.body)
+
+    def test_three_failed_waves_stop_preserving_prefix_and_successful_ranges(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(B, "RANGE_BYTES", 32):
+            directory = Path(temporary)
+            part = self.part()
+            path = directory / part["name"]
+            path.write_bytes(self.body[:7])
+            failed_calls = []
+
+            def fail_first(argv, **kwargs):
+                if argv[argv.index("--range") + 1] == "7-38":
+                    failed_calls.append(1)
+                    return SimpleNamespace(returncode=92, stdout=b"000", stderr=b"reset")
+                return self.curl(argv, **kwargs)
+
+            with patch.object(B.subprocess, "run", side_effect=fail_first), patch.object(B.time, "sleep"):
+                with self.assertRaisesRegex(B.Refused, "AFTER_THREE_ATTEMPTS"):
+                    B.download_part_parallel(directory, part, workers=4)
+            self.assertEqual(len(failed_calls), 3)
+            self.assertEqual(path.read_bytes(), self.body[:7])
+            self.assertEqual(len(list((directory / (part["name"] + ".ranges")).glob("*.ready"))), 3)
+            with patch.object(B.subprocess, "run", side_effect=self.curl) as curl:
+                B.download_part_parallel(directory, part, workers=4)
+            self.assertEqual(curl.call_count, 1)
+            self.assertEqual(path.read_bytes(), self.body)
+
+    def test_bad_status_range_length_encoding_timeout_never_publishes(self):
+        for failure in ("status", "range", "duplicate", "length", "encoding", "timeout", "exit"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+
+                def response(argv, **kwargs):
+                    result = self.curl(argv, **kwargs)
+                    headers = Path(argv[argv.index("--dump-header") + 1])
+                    output = Path(argv[argv.index("--output") + 1])
+                    if failure == "status":
+                        result.stdout = b"200"
+                    elif failure == "range":
+                        headers.write_text("Content-Range: bytes 1-32/128\r\n")
+                    elif failure == "duplicate":
+                        headers.write_text(headers.read_text() + "Content-Range: bytes 0-31/128\r\n")
+                    elif failure == "length":
+                        output.write_bytes(b"short")
+                    elif failure == "encoding":
+                        headers.write_text(headers.read_text() + "Content-Encoding: gzip\r\n")
+                    elif failure == "timeout":
+                        raise subprocess.TimeoutExpired("curl", 190)
+                    elif failure == "exit":
+                        result.returncode = 18
+                    return result
+
+                with patch.object(B.subprocess, "run", side_effect=response):
+                    self.assertFalse(B.fetch_range(directory, self.part(), 0, 31))
+                self.assertFalse((directory / "0-31.ready").exists())
+
+    def test_actual_interruption_during_append_recovers_without_redownloading(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            part = self.part()
+            path = directory / part["name"]
+            path.write_bytes(self.body[:7])
+            scratch = B.range_directory(directory, part)
+            (scratch / "7-127.ready").write_bytes(self.body[7:])
+
+            def interrupt(source, target, length):
+                target.write(source.read(13))
+                raise OSError("interrupted append")
+
+            with patch.object(B.shutil, "copyfileobj", side_effect=interrupt):
+                with self.assertRaises(OSError):
+                    B.append_ready(path, scratch, part)
+            self.assertEqual(path.read_bytes(), self.body[:20])
+            with patch.object(B.subprocess, "run") as curl:
+                B.download_part_parallel(directory, part)
+                curl.assert_not_called()
+            self.assertEqual(path.read_bytes(), self.body)
+
+    def test_default_parallel_download_publishes_verified_archive_and_reuses_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with patch.object(B.subprocess, "run", side_effect=self.curl) as curl:
+                B.prepare_snapshot(directory, (self.part(),))
+                self.assertEqual(curl.call_count, 1)
+            self.assertEqual((directory / "full-path.tar").read_bytes(), self.body)
+            self.assertTrue((directory / "complete.json").exists())
+            with patch.object(B.subprocess, "run") as curl:
+                B.prepare_snapshot(directory, (self.part(),))
+                curl.assert_not_called()
+
+    def test_invalid_worker_counts_fail_before_creating_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for workers in (0, 17, True, 1.5):
+                with self.subTest(workers=workers), self.assertRaisesRegex(B.Refused, "INVALID_DOWNLOAD_WORKERS"):
+                    B.download_part_parallel(directory, self.part(), workers=workers)
+            self.assertEqual(list(directory.iterdir()), [])
+
+    def test_final_sha_rejects_corrupted_but_correct_size_range(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(B, "RANGE_BYTES", 128):
+            directory = Path(temporary)
+
+            def corrupt(argv, **kwargs):
+                result = self.curl(argv, **kwargs)
+                Path(argv[argv.index("--output") + 1]).write_bytes(b"x" * 128)
+                return result
+
+            with patch.object(B.subprocess, "run", side_effect=corrupt):
+                with self.assertRaisesRegex(B.Refused, "CHECKSUM_MISMATCH"):
+                    B.download_part_parallel(directory, self.part())
+            self.assertFalse((directory / "full-path.tar").exists())
+
+    def test_untrusted_directory_and_overlapping_ranges_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            scratch = B.range_directory(directory, self.part())
+            scratch.chmod(0o777)
+            with self.assertRaisesRegex(B.Refused, "UNTRUSTED_RANGE_DIRECTORY"):
+                B.range_directory(directory, self.part())
+            scratch.chmod(0o700)
+            (scratch / "0-31.ready").write_bytes(self.body[:32])
+            (scratch / "16-47.ready").write_bytes(self.body[16:48])
+            with self.assertRaisesRegex(B.Refused, "OVERLAPPING"):
+                B.ready_ranges(scratch, self.part())
+            (scratch / "16-47.ready").unlink()
+            (scratch / "32-63.ready").symlink_to(scratch / "0-31.ready")
+            with self.assertRaisesRegex(B.Refused, "UNTRUSTED"):
+                B.ready_ranges(scratch, self.part())
 
 
 if __name__ == "__main__":

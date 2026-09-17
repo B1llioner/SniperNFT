@@ -7,6 +7,7 @@ metadata. Instance-store loss is never repaired by automatically reformatting.
 """
 
 import argparse
+import concurrent.futures
 import fcntl
 import hashlib
 import json
@@ -398,7 +399,154 @@ def remove_published_parts(directory, parts):
             path.unlink()
 
 
-def prepare_snapshot(directory, parts, downloader=download_part):
+RANGE_BYTES = 256 * 1024 * 1024
+DOWNLOAD_WORKERS = 8
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def range_directory(directory, part):
+    path = directory / (part["name"] + ".ranges")
+    if not path.exists() and not path.is_symlink():
+        path.mkdir(mode=0o700)
+    info = path.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+            and not info.st_mode & 0o077, "UNTRUSTED_RANGE_DIRECTORY")
+    return path
+
+
+def ready_ranges(directory, part):
+    ready = []
+    for path in directory.iterdir():
+        match = re.fullmatch(r"(\d+)-(\d+)\.(ready|pending|headers)", path.name)
+        require(match is not None, "UNEXPECTED_RANGE_FILE")
+        start, end = int(match[1]), int(match[2])
+        require(0 <= start <= end < part["size"] and end - start < RANGE_BYTES,
+                "INVALID_SNAPSHOT_RANGE")
+        info = snapshot_file(path, 131072 if match[3] == "headers" else end - start + 1)
+        if match[3] == "ready":
+            require(info.st_size == end - start + 1, "READY_RANGE_SIZE_MISMATCH")
+            ready.append((start, end, path))
+        else:
+            # Unpublished scratch bytes never authorize appending to the archive.
+            path.unlink()
+    ready.sort()
+    require(all(left[1] < right[0] for left, right in zip(ready, ready[1:])),
+            "OVERLAPPING_SNAPSHOT_RANGES")
+    return ready
+
+
+def fetch_range(directory, part, start, end):
+    """One bounded attempt. Only an exact HTTP 206 response is published."""
+    pending = directory / f"{start}-{end}.pending"
+    headers = directory / f"{start}-{end}.headers"
+    ready = directory / f"{start}-{end}.ready"
+    for path in (pending, headers):
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
+    size = end - start + 1
+    url = SNAPSHOT_URL.rsplit("/", 1)[0] + "/" + part["name"]
+    try:
+        result = subprocess.run([
+            "curl", "--disable", "--http1.1", "--silent", "--show-error", "--fail",
+            "--proto", "=https", "--max-redirs", "0", "--noproxy", "*",
+            "--user-agent", "Mozilla/5.0", "--connect-timeout", "15",
+            "--max-time", "180", "--speed-limit", "1048576", "--speed-time", "60",
+            "--range", f"{start}-{end}", "--max-filesize", str(size),
+            "--dump-header", str(headers), "--write-out", "%{http_code}",
+            "--output", str(pending), "--url", url,
+        ], capture_output=True, timeout=190, check=False)
+    except subprocess.TimeoutExpired:
+        return False
+    snapshot_file(headers, 131072)
+    info = snapshot_file(pending, size)
+    header_text = headers.read_text(encoding="iso-8859-1")
+    ranges = re.findall(r"(?im)^content-range:\s*([^\r\n]+)", header_text)
+    encodings = re.findall(r"(?im)^content-encoding:\s*([^\r\n]+)", header_text)
+    valid = (result.returncode == 0 and result.stdout == b"206"
+             and info.st_size == size and ranges == [f"bytes {start}-{end}/{part['size']}"]
+             and all(value.lower() == "identity" for value in encodings))
+    if not valid:
+        print(json.dumps({"event": "snapshot_range_failed", "start": start, "end": end,
+                          "curlExit": result.returncode, "httpStatus": result.stdout[:16].decode("ascii", "replace")}), flush=True)
+        return False
+    with pending.open("rb") as source:
+        os.fsync(source.fileno())
+    require(not ready.exists() and not ready.is_symlink(), "RANGE_ALREADY_PUBLISHED")
+    os.replace(pending, ready)
+    sync_directory(directory)
+    headers.unlink()
+    return True
+
+
+def append_ready(path, directory, part):
+    """Recover even a crash midway through appending a previously ready range."""
+    for start, end, ready in ready_ranges(directory, part):
+        offset = snapshot_file(path, part["size"]).st_size
+        if start > offset:
+            break
+        if offset <= end:
+            with ready.open("rb") as source, path.open("ab") as output:
+                source.seek(offset - start)
+                shutil.copyfileobj(source, output, 8 * 1024 * 1024)
+                output.flush()
+                os.fsync(output.fileno())
+        ready.unlink()
+        sync_directory(directory)
+
+
+def download_part_parallel(directory, part, workers=DOWNLOAD_WORKERS):
+    require(type(workers) is int and 1 <= workers <= 16, "INVALID_DOWNLOAD_WORKERS")
+    path = directory / part["name"]
+    if not path.exists() and not path.is_symlink():
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
+    offset = snapshot_file(path, part["size"]).st_size
+    scratch = range_directory(directory, part)
+    failures = 0
+    print(json.dumps({"event": "snapshot_parallel_download", "part": part["name"],
+                      "resumeBytes": offset, "totalBytes": part["size"],
+                      "workers": workers, "rangeBytes": RANGE_BYTES}), flush=True)
+    while True:
+        append_ready(path, scratch, part)
+        offset = snapshot_file(path, part["size"]).st_size
+        if offset == part["size"]:
+            verify_part(path, part)
+            scratch.rmdir()
+            print(json.dumps({"event": "snapshot_part_verified", "part": part["name"],
+                              "bytes": offset}), flush=True)
+            return
+        ready = ready_ranges(scratch, part)
+        tasks, cursor = [], offset
+        while cursor < part["size"] and len(tasks) < workers:
+            covered = next((item for item in ready if item[0] <= cursor <= item[1]), None)
+            if covered:
+                cursor = covered[1] + 1
+                continue
+            next_ready = min((item[0] for item in ready if item[0] > cursor), default=part["size"])
+            end = min(cursor + RANGE_BYTES, next_ready, part["size"]) - 1
+            tasks.append((cursor, end))
+            cursor = end + 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(fetch_range, scratch, part, start, end) for start, end in tasks]
+            outcomes = [future.result() for future in futures]
+        failures = 0 if all(outcomes) else failures + 1
+        append_ready(path, scratch, part)
+        print(json.dumps({"event": "snapshot_parallel_progress", "part": part["name"],
+                          "contiguousBytes": path.stat().st_size,
+                          "consecutiveFailedWaves": failures}), flush=True)
+        require(failures < 3, "SNAPSHOT_DOWNLOAD_FAILED_AFTER_THREE_ATTEMPTS")
+        if failures:
+            time.sleep(10)
+
+
+def prepare_snapshot(directory, parts, downloader=download_part_parallel):
     """Only called under a root-owned directory + exclusive lock in production.
 
     A marker cannot authorize a changed archive. Without a marker (e.g. power
@@ -407,7 +555,7 @@ def prepare_snapshot(directory, parts, downloader=download_part):
     archive = directory / "full-path.tar"
     temporary = directory / "full-path.tar.new"
     marker = directory / "complete.json"
-    allowed = {p["name"] for p in parts} | {archive.name, temporary.name, marker.name,
+    allowed = {p["name"] for p in parts} | {p["name"] + ".ranges" for p in parts} | {archive.name, temporary.name, marker.name,
                                            "complete.json.new", "download.lock"}
     require(all(p.name in allowed for p in directory.iterdir()), "UNEXPECTED_SNAPSHOT_DIRECTORY_CONTENT")
     if marker.exists() or marker.is_symlink():
